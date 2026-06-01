@@ -1,39 +1,52 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import https from "node:https";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { EventEmitter } from "node:events";
+import type { RegistryInfo } from "@argent/update-core";
 
-// We need to mock https before importing the module under test.
-vi.mock("node:https");
+// The registry fetch and release-age probe now live in @argent/update-core
+// (with their own low-level tests there). The checker only orchestrates them,
+// so we mock that boundary and keep the real, pure pickInstallableTarget.
+// vi.hoisted keeps the same fn instances across the vi.resetModules() below.
+const { mockFetchRegistryInfo, mockDetectMinReleaseAgeMs } = vi.hoisted(() => ({
+  mockFetchRegistryInfo: vi.fn<() => Promise<RegistryInfo | null>>(),
+  mockDetectMinReleaseAgeMs: vi.fn<() => Promise<number>>(),
+}));
+vi.mock("@argent/update-core", async (importActual) => {
+  const actual = await importActual<typeof import("@argent/update-core")>();
+  return {
+    ...actual,
+    fetchRegistryInfo: mockFetchRegistryInfo,
+    detectMinReleaseAgeMs: mockDetectMinReleaseAgeMs,
+  };
+});
 
 let getUpdateState: typeof import("../src/utils/update-checker").getUpdateState;
 let startUpdateChecker: typeof import("../src/utils/update-checker").startUpdateChecker;
 
-function createMockResponse(statusCode: number, body: string) {
-  const res = new EventEmitter() as EventEmitter & {
-    statusCode: number;
-    setEncoding: ReturnType<typeof vi.fn>;
-    resume: ReturnType<typeof vi.fn>;
-  };
-  res.statusCode = statusCode;
-  res.setEncoding = vi.fn();
-  res.resume = vi.fn();
+const NOW = new Date("2026-06-01T00:00:00Z");
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-  // Emit data + end on next tick so the handler can attach listeners first.
-  process.nextTick(() => {
-    res.emit("data", body);
-    res.emit("end");
-  });
+/** Build a parsed packument with a `latest` tag and a version → publish-time map. */
+function registryInfo(latest: string, times: Record<string, string> = {}): RegistryInfo {
+  return { latest: { version: latest, publishedAt: times[latest] ?? null }, times };
+}
 
-  return res;
+/** Convenience: a single-version packument with an optional publish time. */
+function singleVersion(version: string, publishedAt?: string): RegistryInfo {
+  return registryInfo(version, publishedAt ? { [version]: publishedAt } : {});
 }
 
 describe("update-checker", () => {
   beforeEach(async () => {
     vi.useFakeTimers();
+    vi.setSystemTime(NOW);
     vi.resetModules();
+    vi.clearAllMocks();
+    delete process.env.ARGENT_DISABLE_UPDATE_NOTIFICATIONS;
+    mockFetchRegistryInfo.mockReset();
+    mockDetectMinReleaseAgeMs.mockReset();
+    mockDetectMinReleaseAgeMs.mockResolvedValue(0); // no policy by default
 
     // Re-import after module reset so each test gets fresh state.
     const mod = await import("../src/utils/update-checker");
@@ -44,15 +57,11 @@ describe("update-checker", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    delete process.env.ARGENT_DISABLE_UPDATE_NOTIFICATIONS;
   });
 
-  it("detects an available update on startup", async () => {
-    const mockGet = vi.mocked(https.get);
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, cb: unknown) => {
-      const callback = cb as (res: ReturnType<typeof createMockResponse>) => void;
-      callback(createMockResponse(200, JSON.stringify({ version: "99.0.0" })));
-      return new EventEmitter() as ReturnType<typeof https.get>;
-    });
+  it("detects an available, installable update on startup", async () => {
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("99.0.0", "2020-01-01T00:00:00Z"));
 
     const handle = startUpdateChecker();
 
@@ -61,7 +70,10 @@ describe("update-checker", () => {
 
     const state = getUpdateState();
     expect(state.updateAvailable).toBe(true);
+    expect(state.updateInstallable).toBe(true);
+    expect(state.installableVersion).toBe("99.0.0");
     expect(state.latestVersion).toBe("99.0.0");
+    expect(state.latestPublishedAt).toBe("2020-01-01T00:00:00Z");
 
     handle.dispose();
   });
@@ -69,30 +81,21 @@ describe("update-checker", () => {
   it("reports no update when versions match", async () => {
     const { version: currentVersion } = await import("../package.json");
 
-    const mockGet = vi.mocked(https.get);
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, cb: unknown) => {
-      const callback = cb as (res: ReturnType<typeof createMockResponse>) => void;
-      callback(createMockResponse(200, JSON.stringify({ version: currentVersion })));
-      return new EventEmitter() as ReturnType<typeof https.get>;
-    });
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion(currentVersion, "2020-01-01T00:00:00Z"));
 
     const handle = startUpdateChecker();
     await vi.advanceTimersByTimeAsync(0);
 
     const state = getUpdateState();
     expect(state.updateAvailable).toBe(false);
+    expect(state.updateInstallable).toBe(false);
     expect(state.latestVersion).toBe(currentVersion);
 
     handle.dispose();
   });
 
-  it("keeps previous state on network failure", async () => {
-    const mockGet = vi.mocked(https.get);
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, _cb: unknown) => {
-      const req = new EventEmitter() as ReturnType<typeof https.get>;
-      process.nextTick(() => req.emit("error", new Error("ENOTFOUND")));
-      return req;
-    });
+  it("keeps previous state when the registry is unreachable", async () => {
+    mockFetchRegistryInfo.mockResolvedValue(null);
 
     const handle = startUpdateChecker();
     await vi.advanceTimersByTimeAsync(0);
@@ -105,75 +108,37 @@ describe("update-checker", () => {
   });
 
   it("rechecks after the interval", async () => {
-    const mockGet = vi.mocked(https.get);
-    let callCount = 0;
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, cb: unknown) => {
-      callCount++;
-      const callback = cb as (res: ReturnType<typeof createMockResponse>) => void;
-      callback(createMockResponse(200, JSON.stringify({ version: "99.0.0" })));
-      return new EventEmitter() as ReturnType<typeof https.get>;
-    });
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("99.0.0", "2020-01-01T00:00:00Z"));
 
     const handle = startUpdateChecker();
     await vi.advanceTimersByTimeAsync(0);
-    expect(callCount).toBe(1);
+    expect(mockFetchRegistryInfo).toHaveBeenCalledTimes(1);
 
     // Advance 24 hours — should trigger another check.
     await vi.advanceTimersByTimeAsync(60 * 60 * 1000 * 24);
-    expect(callCount).toBe(2);
+    expect(mockFetchRegistryInfo).toHaveBeenCalledTimes(2);
 
     handle.dispose();
   });
 
   it("stops checking after dispose", async () => {
-    const mockGet = vi.mocked(https.get);
-    let callCount = 0;
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, cb: unknown) => {
-      callCount++;
-      const callback = cb as (res: ReturnType<typeof createMockResponse>) => void;
-      callback(createMockResponse(200, JSON.stringify({ version: "99.0.0" })));
-      return new EventEmitter() as ReturnType<typeof https.get>;
-    });
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("99.0.0", "2020-01-01T00:00:00Z"));
 
     const handle = startUpdateChecker();
     await vi.advanceTimersByTimeAsync(0);
-    expect(callCount).toBe(1);
+    expect(mockFetchRegistryInfo).toHaveBeenCalledTimes(1);
 
     handle.dispose();
 
     await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
-    expect(callCount).toBe(1); // No additional calls after dispose.
-  });
-
-  it("handles non-200 responses gracefully", async () => {
-    const mockGet = vi.mocked(https.get);
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, cb: unknown) => {
-      const callback = cb as (res: ReturnType<typeof createMockResponse>) => void;
-      const res = createMockResponse(404, "Not Found");
-      callback(res);
-      return new EventEmitter() as ReturnType<typeof https.get>;
-    });
-
-    const handle = startUpdateChecker();
-    await vi.advanceTimersByTimeAsync(0);
-
-    const state = getUpdateState();
-    expect(state.updateAvailable).toBe(false);
-    expect(state.latestVersion).toBeNull();
-
-    handle.dispose();
+    expect(mockFetchRegistryInfo).toHaveBeenCalledTimes(1); // No additional calls after dispose.
   });
 
   // ── Semver comparison ─────────────────────────────────────────────
 
   it("does not flag update when running a newer local version", async () => {
-    const mockGet = vi.mocked(https.get);
-    // npm returns 0.1.0 but local is 0.3.3 — local is ahead
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, cb: unknown) => {
-      const callback = cb as (res: ReturnType<typeof createMockResponse>) => void;
-      callback(createMockResponse(200, JSON.stringify({ version: "0.1.0" })));
-      return new EventEmitter() as ReturnType<typeof https.get>;
-    });
+    // npm returns 0.1.0 but local is ahead.
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("0.1.0", "2020-01-01T00:00:00Z"));
 
     const handle = startUpdateChecker();
     await vi.advanceTimersByTimeAsync(0);
@@ -186,13 +151,8 @@ describe("update-checker", () => {
   });
 
   it("does not flag update for pre-release version strings", async () => {
-    const mockGet = vi.mocked(https.get);
-    // npm returns a pre-release tag — non-semver, should be treated safely
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, cb: unknown) => {
-      const callback = cb as (res: ReturnType<typeof createMockResponse>) => void;
-      callback(createMockResponse(200, JSON.stringify({ version: "1.0.0-beta.1" })));
-      return new EventEmitter() as ReturnType<typeof https.get>;
-    });
+    // npm returns a pre-release tag — should never be pushed.
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("1.0.0-beta.1", "2020-01-01T00:00:00Z"));
 
     const handle = startUpdateChecker();
     await vi.advanceTimersByTimeAsync(0);
@@ -203,37 +163,96 @@ describe("update-checker", () => {
     handle.dispose();
   });
 
-  // ── Response stream error ─────────────────────────────────────────
+  // ── Minimum-release-age policy ─────────────────────────────────────
 
-  it("handles response error event without crashing", async () => {
-    const mockGet = vi.mocked(https.get);
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, cb: unknown) => {
-      const callback = cb as (res: ReturnType<typeof createMockResponse>) => void;
-      const res = new EventEmitter() as EventEmitter & {
-        statusCode: number;
-        setEncoding: ReturnType<typeof vi.fn>;
-        resume: ReturnType<typeof vi.fn>;
-      };
-      res.statusCode = 200;
-      res.setEncoding = vi.fn();
-      res.resume = vi.fn();
-
-      // Simulate a connection reset mid-stream
-      process.nextTick(() => {
-        res.emit("data", '{"ver');
-        res.emit("error", new Error("ECONNRESET"));
-      });
-
-      callback(res);
-      return new EventEmitter() as ReturnType<typeof https.get>;
-    });
+  it("flags available but NOT installable when the latest version is younger than the policy", async () => {
+    mockDetectMinReleaseAgeMs.mockResolvedValue(7 * DAY_MS); // 7-day policy
+    // Published 1 day ago — inside the 7-day window.
+    const oneDayAgo = new Date(NOW.getTime() - 1 * DAY_MS).toISOString();
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("99.0.0", oneDayAgo));
 
     const handle = startUpdateChecker();
     await vi.advanceTimersByTimeAsync(0);
 
     const state = getUpdateState();
-    expect(state.updateAvailable).toBe(false);
-    expect(state.latestVersion).toBeNull();
+    expect(state.updateAvailable).toBe(true);
+    expect(state.updateInstallable).toBe(false);
+    expect(state.installableVersion).toBeNull();
+    expect(state.minReleaseAgeMs).toBe(7 * DAY_MS);
+
+    handle.dispose();
+  });
+
+  it("flags installable once the latest version has aged past the policy", async () => {
+    mockDetectMinReleaseAgeMs.mockResolvedValue(7 * DAY_MS); // 7-day policy
+    // Published 10 days ago — past the 7-day window.
+    const tenDaysAgo = new Date(NOW.getTime() - 10 * DAY_MS).toISOString();
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("99.0.0", tenDaysAgo));
+
+    const handle = startUpdateChecker();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const state = getUpdateState();
+    expect(state.updateAvailable).toBe(true);
+    expect(state.updateInstallable).toBe(true);
+    expect(state.installableVersion).toBe("99.0.0");
+
+    handle.dispose();
+  });
+
+  it("recommends the newest version that clears the policy when the latest publish is held", async () => {
+    mockDetectMinReleaseAgeMs.mockResolvedValue(7 * DAY_MS); // 7-day policy
+    const oneDayAgo = new Date(NOW.getTime() - 1 * DAY_MS).toISOString();
+    const tenDaysAgo = new Date(NOW.getTime() - 10 * DAY_MS).toISOString();
+    // latest tag 99.0.0 is too new (held); 98.0.0 has aged past the gate. The
+    // resolver would install 98.0.0, so that is what we should advertise.
+    mockFetchRegistryInfo.mockResolvedValue(
+      registryInfo("99.0.0", { "98.0.0": tenDaysAgo, "99.0.0": oneDayAgo })
+    );
+
+    const handle = startUpdateChecker();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const state = getUpdateState();
+    expect(state.updateAvailable).toBe(true); // 99.0.0 > current exists
+    expect(state.latestVersion).toBe("99.0.0");
+    expect(state.updateInstallable).toBe(true);
+    expect(state.installableVersion).toBe("98.0.0"); // newest eligible, not the latest tag
+
+    handle.dispose();
+  });
+
+  it("is NOT installable under a policy when the publish time is unknown", async () => {
+    mockDetectMinReleaseAgeMs.mockResolvedValue(7 * DAY_MS);
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("99.0.0")); // no time entry
+
+    const handle = startUpdateChecker();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const state = getUpdateState();
+    expect(state.updateAvailable).toBe(true);
+    expect(state.updateInstallable).toBe(false);
+    expect(state.installableVersion).toBeNull();
+    expect(state.latestPublishedAt).toBeNull();
+
+    handle.dispose();
+  });
+
+  // ── Disable flag ───────────────────────────────────────────────────
+
+  it("does not check or notify when notifications are disabled", async () => {
+    process.env.ARGENT_DISABLE_UPDATE_NOTIFICATIONS = "1";
+    vi.resetModules();
+    const mod = await import("../src/utils/update-checker");
+
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("99.0.0", "2020-01-01T00:00:00Z"));
+
+    const handle = mod.startUpdateChecker();
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000 * 24);
+
+    expect(mockFetchRegistryInfo).not.toHaveBeenCalled();
+    expect(mod.getUpdateState().updateInstallable).toBe(false);
+    expect(mod.areUpdateNotificationsDisabled()).toBe(true);
 
     handle.dispose();
   });
@@ -241,27 +260,20 @@ describe("update-checker", () => {
   // ── Double start guard ────────────────────────────────────────────
 
   it("clears previous interval when startUpdateChecker is called twice", async () => {
-    const mockGet = vi.mocked(https.get);
-    let callCount = 0;
-    mockGet.mockImplementation((_url: unknown, _opts: unknown, cb: unknown) => {
-      callCount++;
-      const callback = cb as (res: ReturnType<typeof createMockResponse>) => void;
-      callback(createMockResponse(200, JSON.stringify({ version: "99.0.0" })));
-      return new EventEmitter() as ReturnType<typeof https.get>;
-    });
+    mockFetchRegistryInfo.mockResolvedValue(singleVersion("99.0.0", "2020-01-01T00:00:00Z"));
 
     const handle1 = startUpdateChecker();
     await vi.advanceTimersByTimeAsync(0);
-    expect(callCount).toBe(1);
+    expect(mockFetchRegistryInfo).toHaveBeenCalledTimes(1);
 
     // Start a second checker — should clear the first interval.
     const handle2 = startUpdateChecker();
     await vi.advanceTimersByTimeAsync(0);
-    expect(callCount).toBe(2);
+    expect(mockFetchRegistryInfo).toHaveBeenCalledTimes(2);
 
     // Advance 24 hours — should trigger exactly 1 check (from handle2), not 2.
     await vi.advanceTimersByTimeAsync(60 * 60 * 1000 * 24);
-    expect(callCount).toBe(3);
+    expect(mockFetchRegistryInfo).toHaveBeenCalledTimes(3);
 
     handle1.dispose();
     handle2.dispose();

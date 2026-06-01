@@ -185,8 +185,10 @@ export function createHttpApp(registry: Registry, options?: HttpAppOptions): Htt
         const data = await registry.invokeTool(name, parsedData, {
           signal: controller.signal,
         });
-        const { updateAvailable, currentVersion, latestVersion } = getUpdateState();
-        const shouldNotify = updateAvailable && !isUpdateNoteSuppressed();
+        // Gate on `updateInstallable` (not `updateAvailable`) and advertise the
+        // version the resolver would install — both account for the release-age policy.
+        const { updateInstallable, currentVersion, installableVersion } = getUpdateState();
+        const shouldNotify = updateInstallable && !isUpdateNoteSuppressed();
         if (shouldNotify) {
           // Best-effort: a persistence failure here must not fail the user's tool call.
           // Worst case: the note appears again on the next request.
@@ -199,7 +201,7 @@ export function createHttpApp(registry: Registry, options?: HttpAppOptions): Htt
         res.json({
           data,
           ...(shouldNotify
-            ? { note: buildUpdateNote(currentVersion, latestVersion ?? "unknown") }
+            ? { note: buildUpdateNote(currentVersion, installableVersion ?? "unknown") }
             : {}),
         });
       } catch (err: unknown) {
