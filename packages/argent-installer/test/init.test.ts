@@ -43,6 +43,10 @@ describe("buildArgentSkillsSource", () => {
     expect(buildArgentSkillsSource("unknown")).toBe(SKILLS_DIR);
   });
 
+  it("falls back to bundled SKILLS_DIR for -vega fork builds (no upstream tag)", () => {
+    expect(buildArgentSkillsSource("0.10.0-vega")).toBe(SKILLS_DIR);
+  });
+
   it("falls back to SKILLS_DIR when no version is supplied", () => {
     expect(buildArgentSkillsSource(null)).toBe(SKILLS_DIR);
     expect(buildArgentSkillsSource(undefined)).toBe(SKILLS_DIR);
