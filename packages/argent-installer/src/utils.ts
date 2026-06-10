@@ -63,6 +63,11 @@ export const ARGENT_SKILLS_REPO = "software-mansion/argent/packages/skills/skill
 // installs still succeed.
 export function buildArgentSkillsSource(version: string | null | undefined): string {
   if (!version || version === "unknown") return SKILLS_DIR;
+  // "-vega" fork builds are not published as tags on the upstream
+  // ARGENT_SKILLS_REPO, so cloning `…#v<version>` 404s. The skills ship bundled
+  // in the package — use the local dir. (Upstream "-next.N" prereleases DO have
+  // tags published by publish-next.yml, so only the fork marker falls back.)
+  if (version.includes("-vega")) return SKILLS_DIR;
   return `${ARGENT_SKILLS_REPO}#v${version}`;
 }
 
