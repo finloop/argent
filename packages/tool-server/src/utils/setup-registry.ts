@@ -35,6 +35,7 @@ import { keyboardTool } from "../tools/keyboard";
 import { rotateTool } from "../tools/rotate";
 import { remoteTool } from "../tools/remote";
 import { readDeviceLogsTool } from "../tools/read-device-logs";
+import { listInstalledAppsTool } from "../tools/list-installed-apps";
 import { createRunSequenceTool } from "../tools/run-sequence";
 import { debuggerConnectTool } from "../tools/debugger/debugger-connect";
 import { debuggerStatusTool } from "../tools/debugger/debugger-status";
@@ -123,6 +124,7 @@ export function createRegistry(): Registry {
   registry.registerTool(rotateTool);
   registry.registerTool(remoteTool);
   registry.registerTool(readDeviceLogsTool);
+  registry.registerTool(listInstalledAppsTool);
   registry.registerTool(createRunSequenceTool(registry));
   registry.registerTool(debuggerConnectTool);
   registry.registerTool(debuggerStatusTool);
