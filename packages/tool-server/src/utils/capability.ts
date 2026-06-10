@@ -71,7 +71,12 @@ export function assertSupported(
   device: DeviceInfo
 ): void {
   if (!capability) return;
-  const matrix = device.platform === "ios" ? capability.apple : capability.android;
+  const matrix =
+    device.platform === "ios"
+      ? capability.apple
+      : device.platform === "android"
+        ? capability.android
+        : capability.vega;
   if (!matrix) {
     throw new UnsupportedOperationError(toolId, device, `no ${device.platform} support declared`);
   }

@@ -76,9 +76,9 @@ export interface ToolContext extends InvokeToolOptions {
 
 // ── Device + Capability Types ──
 
-export type Platform = "ios" | "android";
+export type Platform = "ios" | "android" | "vega";
 
-export type DeviceKind = "simulator" | "emulator" | "device" | "unknown";
+export type DeviceKind = "simulator" | "emulator" | "virtual" | "device" | "unknown";
 
 /**
  * Universal device handle. Platform-aware tools resolve a `udid` parameter into
@@ -109,6 +109,15 @@ export interface ToolCapability {
     device?: boolean;
     unknown?: boolean;
   };
+  /**
+   * Vega (Amazon Fire TV) support. `virtual` is the QEMU Virtual Device (VVD),
+   * the analogue of an iOS simulator / Android emulator; `device` is a physical
+   * Fire TV reached over the `vega`/`kepler` CLI.
+   */
+  vega?: {
+    virtual?: boolean;
+    device?: boolean;
+  };
   /** Optional refiner. Returns true if this device is supported. */
   supports?: (device: DeviceInfo) => boolean;
 }
@@ -133,7 +142,7 @@ export interface ToolCapability {
  * On a missing binary, the HTTP layer returns 424 Failed Dependency with an
  * install hint the agent can surface verbatim.
  */
-export type ToolDependency = "adb" | "xcrun" | "emulator";
+export type ToolDependency = "adb" | "xcrun" | "emulator" | "vega";
 
 // ── Tool Types ──
 
