@@ -4,6 +4,7 @@ import type { DescribeResult, DescribeTreeData } from "./contract";
 import { dispatchByPlatform } from "../../utils/cross-platform-tool";
 import { describeAndroid, androidRequires } from "./platforms/android";
 import { iosRequires, describeIos } from "./platforms/ios";
+import { describeVega, vegaRequires } from "./platforms/vega";
 import { formatDescribeTree } from "./format-tree";
 
 // In-between layer between the per-platform adapters (which still own all
@@ -41,6 +42,7 @@ type Params = z.infer<typeof zodSchema>;
 const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
+  vega: { virtual: true, device: true },
 };
 
 // `describe` doesn't fit dispatchByPlatform's standard service-typed
@@ -54,6 +56,10 @@ export function createDescribeTool(registry: Registry): ToolDefinition<Params, D
     description: `Get the accessibility element tree for the current screen.
 On iOS, uses the AXRuntime accessibility service to inspect whatever is currently visible — including
 system dialogs, permission prompts, and any foreground app content. On Android, runs \`uiautomator dump\`.
+On Vega (Fire TV), reads the on-device automation toolkit (\`getPageSource\`); each element carries
+\`[focused]\`/\`[selected]\` so you can see where the D-pad cursor is, then move it with the \`remote\` tool
+(Vega is remote-driven, not touch). If describe returns an empty tree on Vega, relaunch the foreground
+app (the toolkit attaches at launch) and try again.
 
 When a system dialog is visible, describe returns the dialog's interactive elements (buttons, text)
 with tap coordinates. When no dialog is present, it returns the foreground app's accessible elements.
@@ -71,7 +77,8 @@ For app-scoped inspection with full UIKit properties (accessibilityIdentifier, v
 use native-describe-screen with an explicit bundleId instead (iOS only).
 For React Native apps, debugger-component-tree returns React component names with tap coordinates.`,
     alwaysLoad: true,
-    searchHint: "accessibility element tree ui hierarchy tap coordinates ios android",
+    searchHint:
+      "accessibility element tree ui hierarchy tap coordinates ios android vega fire tv focus",
     zodSchema,
     capability,
     services: () => ({}),
@@ -92,6 +99,10 @@ For React Native apps, debugger-component-tree returns React component names wit
         requires: androidRequires,
         handler: async (_services, params) =>
           withDescription(await describeAndroid(registry, params.udid, params.bundleId)),
+      },
+      vega: {
+        requires: vegaRequires,
+        handler: async (_services, params) => withDescription(await describeVega(params.udid)),
       },
     }),
   };
