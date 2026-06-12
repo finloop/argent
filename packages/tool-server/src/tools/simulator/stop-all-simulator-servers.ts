@@ -3,6 +3,7 @@ import type { Registry, ToolDefinition } from "@argent/registry";
 import { SIMULATOR_SERVER_NAMESPACE } from "../../blueprints/simulator-server";
 import { NATIVE_DEVTOOLS_NAMESPACE } from "../../blueprints/native-devtools";
 import { ANDROID_DEVTOOLS_NAMESPACE } from "../../blueprints/android-devtools";
+import { disposeAllVegaAgents } from "../../utils/vega-agent-manager";
 
 const PREFIXES = [
   `${SIMULATOR_SERVER_NAMESPACE}:`,
@@ -25,6 +26,11 @@ export function createStopAllSimulatorServersTool(
           await registry.disposeService(urn);
           stopped.push(urn);
         }
+      }
+      // On-device Vega agents are managed outside the registry (see
+      // vega-agent-manager); shut them down + drop their adb forwards too.
+      for (const udid of await disposeAllVegaAgents()) {
+        stopped.push(`VegaAgent:${udid}`);
       }
       return { stopped };
     },
