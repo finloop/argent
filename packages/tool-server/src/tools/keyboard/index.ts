@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ServiceRef, ToolCapability, ToolDefinition } from "@argent/registry";
 import { simulatorServerRef, type SimulatorServerApi } from "../../blueprints/simulator-server";
 import { resolveDevice } from "../../utils/device-info";
-import { resolveVegaTransport } from "../../utils/vega-transport";
+import { runVegaFastCli } from "../../utils/vega-fast-cli";
 import { charToKeyPress, NAMED_KEYS, SHIFT_KEYCODE } from "./key-codes";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -54,14 +54,15 @@ Provide text, key, or both. Use instead of paste when paste is unreliable or uns
   },
   async execute(services, params) {
     if (resolveDevice(params.udid).platform === "vega") {
-      const transport = await resolveVegaTransport(params.udid);
+      // Shell out to vega-fast-cli; it maps named keys + injects via the on-device server.
       let keysPressed = 0;
       if (params.key) {
-        await transport.pressNamedKey(params.key);
+        await runVegaFastCli(["key", params.key]);
         keysPressed++;
       }
       if (params.text) {
-        keysPressed += await transport.sendText(params.text);
+        await runVegaFastCli(["type", params.text]);
+        keysPressed += [...params.text].length;
       }
       return { typed: params.text ?? params.key ?? "", keys: keysPressed };
     }

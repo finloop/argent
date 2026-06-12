@@ -3,7 +3,7 @@ import type { Registry, ToolDefinition } from "@argent/registry";
 import { SIMULATOR_SERVER_NAMESPACE } from "../../blueprints/simulator-server";
 import { NATIVE_DEVTOOLS_NAMESPACE } from "../../blueprints/native-devtools";
 import { ANDROID_DEVTOOLS_NAMESPACE } from "../../blueprints/android-devtools";
-import { disposeAllVegaAgents } from "../../utils/vega-agent-manager";
+import { runVegaFastCli } from "../../utils/vega-fast-cli";
 
 const PREFIXES = [
   `${SIMULATOR_SERVER_NAMESPACE}:`,
@@ -27,10 +27,13 @@ export function createStopAllSimulatorServersTool(
           stopped.push(urn);
         }
       }
-      // On-device Vega agents are managed outside the registry (see
-      // vega-agent-manager); shut them down + drop their adb forwards too.
-      for (const udid of await disposeAllVegaAgents()) {
-        stopped.push(`VegaAgent:${udid}`);
+      // The Vega on-device server is managed by the vega-fast-cli host binary,
+      // outside the registry — best-effort shut it down (no-op if no VVD).
+      try {
+        await runVegaFastCli(["stop"], { timeoutMs: 10_000 });
+        stopped.push("vega-fast-cli:server");
+      } catch {
+        /* no VVD / binary absent — nothing to stop */
       }
       return { stopped };
     },
