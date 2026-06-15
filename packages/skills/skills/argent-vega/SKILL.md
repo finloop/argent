@@ -32,6 +32,8 @@ Prereqs: Vega SDK on PATH (`source ~/vega/env`). Start the VVD yourself — `veg
 - `remote {udid, button:[...]}` — run a **whole path in one call**, e.g. `{button:["up","right","right","select"]}`. **Strongly prefer this for any multi-step move.** Each `remote` call pays a fixed ~1.6s device handshake, so one path of N presses (~1.6s + N·0.3s, one API round-trip) replaces N separate calls (N·~1.9s, N round-trips). A 3-hop drops ~5.9s→~2.6s; longer paths win more.
 - `keyboard {udid, text}` or `{udid, key:"enter"}` — type into a focused field (focus it with the D-pad first).
 
+**Typing text — never spell it out on the on-screen keyboard.** When a text field is focused and a soft keyboard appears, do **not** D-pad to each letter and `select` it (dozens of round-trips per word). Instead: move focus onto the text field with the D-pad, then send the whole string in **one** `keyboard {udid, text:"…"}` call — it injects the entire string host-side via `inputd-cli send_text` in a single shot (one round-trip regardless of length). Only fall back to picking keys on the on-screen keyboard if a `describe` after the send confirms the field didn't receive the text (some native fields reject injected text). Press submit/enter with `keyboard {udid, key:"enter"}` or the field's on-screen confirm button.
+
 ## Fast navigation (the loop)
 
 Per screen, do exactly two tool calls:
