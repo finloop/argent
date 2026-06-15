@@ -57,11 +57,52 @@ export async function resolveVegaSerial(override?: string): Promise<string> {
   return serial;
 }
 
-/** Reset to start state: terminate + relaunch the app (NOT reinstall). Assumes a stateless app. */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Reset to start state: terminate + relaunch the app (NOT reinstall). Assumes a stateless app.
+ *
+ * Vega cold-launches the RN bundle slowly (~45s+), and argent SIGKILLs `vega launch-app`
+ * at its internal cap — but the on-device launch is already triggered ("Sending: pkg://…")
+ * and completes anyway. So we don't trust restart-app's exit code: we kick it off, then poll
+ * `describe` until a real (interactive) screen is up.
+ */
 export async function restartApp(serial: string, appId: string): Promise<void> {
-  await execFileAsync(
-    "argent",
-    ["run", "restart-app", "--udid", serial, "--bundleId", appId],
-    { timeout: 90_000 }
+  try {
+    await execFileAsync(
+      "argent",
+      ["run", "restart-app", "--udid", serial, "--bundleId", appId],
+      { timeout: 120_000 }
+    );
+  } catch {
+    // The slow launch is often SIGKILLed by argent's cap while still coming up on-device;
+    // fall through to the readiness poll rather than failing the trial.
+  }
+  await waitUntilReady(serial, 75_000);
+}
+
+/** Poll describe until the app shows an interactive screen (not blank/mid-launch). */
+async function waitUntilReady(serial: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastErr: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const { stdout } = await execFileAsync(
+        "argent",
+        ["run", "describe", "--udid", serial, "--json"],
+        { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }
+      );
+      const obj = JSON.parse(stdout) as { description?: string };
+      const text = obj.description ?? stdout;
+      const interactive = (text.match(/\b(button|card|carousel)\b/g) ?? []).length;
+      if (interactive >= 5) return; // a real screen is loaded
+    } catch (e) {
+      lastErr = e;
+    }
+    await sleep(2500);
+  }
+  throw new Error(
+    `app did not reach an interactive screen within ${timeoutMs}ms` +
+      (lastErr instanceof Error ? `: ${lastErr.message}` : "")
   );
 }

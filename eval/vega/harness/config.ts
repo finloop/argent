@@ -5,8 +5,12 @@
 /** App under test (hardcoded for now; see eval/vega/README.md). */
 export const APP_ID = "com.amazondeveloper.keplervideoapp.main";
 
-/** Pinned model. Same model + same prompt on both arms or the comparison is meaningless. */
-export const MODEL = "claude-sonnet-4-6";
+/**
+ * Agent model. Same model on both arms or the comparison is meaningless. Overridable via
+ * ARGENT_EVAL_MODEL so a run can name the model under eval without editing this file.
+ * Default: Opus 4.8.
+ */
+export const MODEL = process.env.ARGENT_EVAL_MODEL ?? "claude-opus-4-8";
 
 /**
  * The argent Vega tools the agent is allowed to use. Restricting the surface keeps the
@@ -35,6 +39,8 @@ export const SYSTEM_PROMPT = [
   "",
   "Method: observe with `describe`, decide the next D-pad move toward the goal, press it with `remote`, then observe again to confirm focus moved as expected. Work in small steps.",
   "Stop as soon as the goal screen is reached and confirmed by a `describe` call. Do not take extra actions after the goal is reached.",
+  "",
+  "IMPORTANT: Emit EXACTLY ONE tool call per turn. Never request more than one tool in the same message — wait for each tool result before deciding the next call. (You may still pass a multi-button path to a single `remote` call; that is one tool call.)",
 ].join("\n");
 
 /** How often to poll the trial MCP log for goal satisfaction (ms). */
