@@ -1,0 +1,3 @@
+# Benchmark outputs (per-run results, MCP log slices, summaries)
+runs/
+harness/runs/
