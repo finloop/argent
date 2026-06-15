@@ -65,6 +65,17 @@ also shows **device-time p50 dropping** (the transport actually got faster) with
 roughly flat** — if steps moved, the `describe` *content* changed, not just its speed, and
 that needs separate scrutiny.
 
+## Version compatibility (preflight)
+
+Each arm is a real install, so an arm must be a **Vega-capable** argent (Vega device control
+exists only since 2026-06-11; pre-Vega builds can't drive the TV at all). Before any trials,
+`run.ts` runs a **preflight** that aborts loudly (exit 3) unless the installed version: lists
+a Vega device, drives a probe `describe` through `argent mcp` that returns a real tree, emits
+the `ARGENT_MCP_LOG` JSONL the decomposition reads (`tool_called`/`tool_result` with numeric
+`durationMs` + ISO `ts`), and has the auto-screenshot flag pinned. This turns "every trial
+mysteriously timed out" into "argent X.Y lacks the eval surface, refusing to run." Don't pit a
+pre-Vega version as an arm — there's nothing to measure there.
+
 ## Confounds the harness already pins
 
 - **Auto-screenshot OFF** — `run.ts` sets the global `disable-auto-screenshot` flag each

@@ -14,6 +14,7 @@ import { runTrial, type TrialContext } from "./agent.ts";
 import { argentVersion, resolveVegaSerial, restartApp, pinAutoScreenshotOff } from "./device.ts";
 import { APP_ID, SETTLE_MS } from "./config.ts";
 import { summarize, renderArmTable } from "./report.ts";
+import { preflight, PreflightError } from "./preflight.ts";
 import type { TrialResult } from "./types.ts";
 
 interface Args {
@@ -53,6 +54,20 @@ async function main() {
   const version = await argentVersion();
   const serial = await resolveVegaSerial(args.serial);
   const tasks = loadTasks(args.tasks);
+
+  // Fail loudly NOW if this installed argent lacks the eval surface (Vega device control,
+  // ARGENT_MCP_LOG format, flag) — otherwise every trial would silently time out.
+  try {
+    const report = await preflight(version, serial);
+    for (const note of report.notes) console.warn(`[eval] ${note}`);
+    console.log(`[eval] preflight OK — argent ${version} exposes the eval surface`);
+  } catch (err) {
+    if (err instanceof PreflightError) {
+      console.error(`[eval] PREFLIGHT FAILED — refusing to run.\n[eval] ${err.message}`);
+      process.exit(3);
+    }
+    throw err;
+  }
 
   const runDir = path.resolve(args.out, args.arm);
   fs.mkdirSync(runDir, { recursive: true });
