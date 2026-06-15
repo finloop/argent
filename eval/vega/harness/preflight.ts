@@ -15,6 +15,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { readLog } from "./mcplog.ts";
+import { restartApp } from "./device.ts";
+import { APP_ID } from "./config.ts";
 
 export class PreflightError extends Error {}
 
@@ -122,6 +124,9 @@ export async function preflight(version: string, serial: string): Promise<Prefli
   const logPath = path.join(tmp, "probe.mcplog.jsonl");
 
   try {
+    // Launch the app first so the automation toolkit (binds at launch) is attached —
+    // otherwise the probe describe can come back empty and falsely fail preflight.
+    await restartApp(serial, APP_ID);
     const { toolNames, describeText } = await probeMcpDescribe(serial, logPath);
 
     // (3a) describe returned a populated Vega tree
