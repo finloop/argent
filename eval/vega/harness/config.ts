@@ -39,8 +39,6 @@ export const SYSTEM_PROMPT = [
   "",
   "Method: observe with `describe`, decide the next D-pad move toward the goal, press it with `remote`, then observe again to confirm focus moved as expected. Work in small steps.",
   "Stop as soon as the goal screen is reached and confirmed by a `describe` call. Do not take extra actions after the goal is reached.",
-  "",
-  "IMPORTANT: Emit EXACTLY ONE tool call per turn. Never request more than one tool in the same message — wait for each tool result before deciding the next call. (You may still pass a multi-button path to a single `remote` call; that is one tool call.)",
 ].join("\n");
 
 /** How often to poll the trial MCP log for goal satisfaction (ms). */
