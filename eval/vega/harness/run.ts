@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { loadTasks } from "./tasks.ts";
 import { runTrial, type TrialContext } from "./agent.ts";
 import { argentVersion, resolveVegaSerial, restartApp, pinAutoScreenshotOff } from "./device.ts";
-import { APP_ID, SETTLE_MS } from "./config.ts";
+import { APP_ID, SETTLE_MS, MODEL } from "./config.ts";
 import { summarize, renderArmTable } from "./report.ts";
 import { preflight, PreflightError } from "./preflight.ts";
 import type { TrialResult } from "./types.ts";
@@ -73,7 +73,7 @@ async function main() {
   fs.mkdirSync(runDir, { recursive: true });
   const resultsPath = path.join(runDir, "results.json");
 
-  console.log(`[eval] arm=${args.arm} argent=${version} serial=${serial}`);
+  console.log(`[eval] arm=${args.arm} argent=${version} model=${MODEL} serial=${serial}`);
   console.log(`[eval] tasks=${tasks.map((t) => t.id).join(",")} trials=${args.trials}`);
   console.log(`[eval] writing to ${runDir}`);
 
@@ -104,7 +104,7 @@ async function main() {
 
   const stats = summarize(results);
   const summaryPath = path.join(runDir, "summary.json");
-  fs.writeFileSync(summaryPath, JSON.stringify({ arm: args.arm, version, stats }, null, 2) + "\n");
+  fs.writeFileSync(summaryPath, JSON.stringify({ arm: args.arm, version, model: MODEL, stats }, null, 2) + "\n");
 
   console.log(`\n[eval] arm=${args.arm} (argent ${version}) — per-task summary:\n`);
   console.log(renderArmTable(stats));

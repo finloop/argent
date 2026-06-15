@@ -2,10 +2,6 @@
 id: open-third-in-row
 max_steps: 24
 max_seconds: 150
-# Validated live on com.amazondeveloper.keplervideoapp.main: the third item in the first
-# home row opens the "Promises of Tomorrow" detail page. The goal asserts that page via the
-# header title plus the stable Play-Movie action test id (present only on a movie detail
-# page), so it cannot match the title appearing on a card elsewhere.
 goal:
   all_of:
     - contains_text: "Promises of Tomorrow"

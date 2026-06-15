@@ -44,6 +44,25 @@ test("any_of / all_of compose", () => {
   );
 });
 
+// Parent-focus + child-text: [focused] on the button, label on a child line. Also a
+// phantom [focused] node (the search overlay) whose subtree lacks the target text.
+const NESTED = `
+button id="14" [focused,selected]
+  text "Search"
+button id="1064" [focused]
+  text "Log out"
+`;
+
+test("focused matches when the label is a child of the focused element", () => {
+  assert.equal(matchesGoal(NESTED, { contains_text: "Log out", focused: true }), true);
+});
+
+test("focused does not match a focused node whose subtree lacks the text", () => {
+  // "Search" is under the focused overlay node, "Log out" under the other — neither focused
+  // node has BOTH, so a wrong pairing must not match.
+  assert.equal(matchesGoal(NESTED, { contains_text: "Settings", focused: true }), false);
+});
+
 test("describeToText pulls from {description} and {source} shapes", () => {
   assert.equal(describeToText({ description: "hello" }), "hello");
   assert.equal(describeToText({ source: "<xml/>" }), "<xml/>");

@@ -25,35 +25,72 @@ export function describeToText(result: unknown): string {
   }
 }
 
-function lineMatchesScalars(line: string, g: GoalPredicate): boolean {
-  const l = line.toLowerCase();
-  if (g.contains_text != null && !l.includes(g.contains_text.toLowerCase())) return false;
-  if (g.role != null && !l.includes(g.role.toLowerCase())) return false;
-  if (g.focused === true && !/\[focused\]/i.test(line)) return false;
-  if (g.selected === true && !/\[selected\]/i.test(line)) return false;
+interface Line {
+  indent: number;
+  text: string;
+}
+
+/** Split into element lines, keeping indentation (the describe tree is nested by indent). */
+function toLines(describeResult: unknown): Line[] {
+  return describeToText(describeResult)
+    .split("\n")
+    .map((raw) => ({ indent: raw.length - raw.trimStart().length, text: raw.trim() }))
+    .filter((l) => l.text.length > 0);
+}
+
+/** A line + its descendants (subsequent lines indented deeper than it). */
+function subtree(lines: Line[], i: number): Line[] {
+  const base = lines[i]!.indent;
+  const out = [lines[i]!];
+  for (let j = i + 1; j < lines.length && lines[j]!.indent > base; j++) out.push(lines[j]!);
+  return out;
+}
+
+function lineHasFlags(text: string, g: GoalPredicate): boolean {
+  if (g.focused === true && !/\[focused\]/i.test(text)) return false;
+  if (g.selected === true && !/\[selected\]/i.test(text)) return false;
   return true;
 }
 
-function hasScalarKeys(g: GoalPredicate): boolean {
-  return (
-    g.contains_text != null || g.role != null || g.focused != null || g.selected != null
-  );
+/** contains_text / role can be on different lines within the given set. */
+function contentInLines(lines: Line[], g: GoalPredicate): boolean {
+  if (g.contains_text != null) {
+    const needle = g.contains_text.toLowerCase();
+    if (!lines.some((l) => l.text.toLowerCase().includes(needle))) return false;
+  }
+  if (g.role != null) {
+    const role = g.role.toLowerCase();
+    if (!lines.some((l) => l.text.toLowerCase().includes(role))) return false;
+  }
+  return true;
 }
 
 /** True iff the predicate holds over the describe tree. */
 export function matchesGoal(describeResult: unknown, goal: GoalPredicate): boolean {
-  const lines = describeToText(describeResult)
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return predicateHolds(lines, goal);
+  return predicateHolds(toLines(describeResult), goal);
 }
 
-function predicateHolds(lines: string[], g: GoalPredicate): boolean {
-  // Scalar part: some single line satisfies all present scalar keys.
-  if (hasScalarKeys(g)) {
-    if (!lines.some((line) => lineMatchesScalars(line, g))) return false;
+function scalarHolds(lines: Line[], g: GoalPredicate): boolean {
+  const needsFlags = g.focused != null || g.selected != null;
+  const needsContent = g.contains_text != null || g.role != null;
+  if (!needsFlags && !needsContent) return true;
+
+  if (needsFlags) {
+    // The content must live in the SUBTREE of a focused/selected element — so a focused
+    // container whose label is a child text node matches (and a phantom focused node whose
+    // subtree lacks the text does not).
+    for (let i = 0; i < lines.length; i++) {
+      if (!lineHasFlags(lines[i]!.text, g)) continue;
+      if (!needsContent || contentInLines(subtree(lines, i), g)) return true;
+    }
+    return false;
   }
+  // No flag required: content may be anywhere in the tree.
+  return contentInLines(lines, g);
+}
+
+function predicateHolds(lines: Line[], g: GoalPredicate): boolean {
+  if (!scalarHolds(lines, g)) return false;
   if (g.all_of && !g.all_of.every((sub) => predicateHolds(lines, sub))) return false;
   if (g.any_of && !g.any_of.some((sub) => predicateHolds(lines, sub))) return false;
   return true;
