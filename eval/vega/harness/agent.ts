@@ -61,8 +61,18 @@ export async function runTrial(task: Task, ctx: TrialContext): Promise<TrialResu
     goalTs: null,
   };
   let tokens: TrialResult["tokens"];
+  let q: ReturnType<typeof query> | undefined;
 
-  // Poll the trial log for goal satisfaction / budget breaches, abort when hit.
+  // Force-stop the agent: cooperative abort PLUS the SDK's interrupt()/return(), because a
+  // wedged session does not exit the `for await` on abort alone (which would hang the whole
+  // run). Best-effort and non-throwing.
+  const stopAgent = () => {
+    abortController.abort();
+    void Promise.resolve(q?.interrupt?.()).catch(() => {});
+    void Promise.resolve(q?.return?.(undefined as never)).catch(() => {});
+  };
+
+  // Poll the trial log for goal satisfaction / budget breaches, stop when hit.
   const poll = setInterval(() => {
     const entries = readLog(logPath);
     const t0 = firstCallTs(entries);
@@ -72,25 +82,30 @@ export async function runTrial(task: Task, ctx: TrialContext): Promise<TrialResu
     if (gt != null) {
       state.goalTs = gt;
       state.outcome = "goal_reached";
-      abortController.abort();
+      stopAgent();
       return;
     }
     const elapsedFromFirstCall = t0 != null ? (Date.now() - t0) / 1000 : 0;
     const elapsedWall = (Date.now() - harnessStart) / 1000;
     if (elapsedFromFirstCall > task.max_seconds || elapsedWall > task.max_seconds + 30) {
       state.outcome = "max_seconds";
-      abortController.abort();
+      stopAgent();
       return;
     }
     if (steps > task.max_steps) {
       state.outcome = "max_steps";
-      abortController.abort();
+      stopAgent();
       return;
     }
   }, GOAL_POLL_MS);
 
+  // Hard deadline: a backstop so the trial ALWAYS returns even if the SDK loop never exits
+  // on abort (a hung session). Sits 30s past the cooperative budget the poll enforces.
+  const hardDeadlineMs = (task.max_seconds + 30) * 1000;
+  let hardTimer: ReturnType<typeof setTimeout> | undefined;
+
   try {
-    const q = query({
+    q = query({
       prompt,
       options: {
         model: MODEL,
@@ -111,21 +126,39 @@ export async function runTrial(task: Task, ctx: TrialContext): Promise<TrialResu
       },
     });
 
-    for await (const msg of q) {
-      if (msg.type === "result") {
-        const u = (msg as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
-        if (u) tokens = { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0 };
+    // Drain the message stream. A real (non-abort) error propagates; abort/interrupt is
+    // swallowed so the race below resolves cleanly.
+    const consume = (async () => {
+      for await (const msg of q!) {
+        if (msg.type === "result") {
+          const u = (msg as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
+          if (u) tokens = { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0 };
+        }
+        if (abortController.signal.aborted) break;
       }
-      if (abortController.signal.aborted) break;
-    }
+    })().catch((err) => {
+      if (!abortController.signal.aborted) throw err;
+    });
+
+    const hard = new Promise<void>((resolve) => {
+      hardTimer = setTimeout(() => {
+        if (state.outcome !== "goal_reached") state.outcome = "max_seconds";
+        stopAgent();
+        resolve(); // proceed even if `consume` is wedged — it is abandoned, not awaited
+      }, hardDeadlineMs);
+    });
+
+    await Promise.race([consume, hard]);
+    consume.catch(() => {}); // swallow any late rejection from an abandoned loop
   } catch (err) {
-    // AbortError is expected when we stop early on goal/budget; anything else is a real error.
-    if (!abortController.signal.aborted) {
-      clearInterval(poll);
-      return buildResult(task, ctx, logPath, "error", null, tokens, String(err));
-    }
+    // A real error from consume (not abort/interrupt).
+    clearInterval(poll);
+    if (hardTimer) clearTimeout(hardTimer);
+    stopAgent();
+    return buildResult(task, ctx, logPath, "error", null, tokens, String(err));
   } finally {
     clearInterval(poll);
+    if (hardTimer) clearTimeout(hardTimer);
   }
 
   // Final authoritative pass over the completed log (catches a goal reached on the very
