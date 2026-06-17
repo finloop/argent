@@ -50,7 +50,11 @@ packages/argent/rules/
 packages/argent/assets/
 packages/argent/README.md
 
-# We do intentionally track internal .claude skills. Do not remove them solely based on .gitignore 
+# vega-fast-cli per-platform host binaries: fetched (not committed) by
+# scripts/download-vega-fast-cli.sh from software-mansion-labs/vega-fast-cli.
+packages/native-devtools-vega/bin/
+
+# We do intentionally track internal .claude skills. Do not remove them solely based on .gitignore
 .claude/
 .cursor/
 .vscode/

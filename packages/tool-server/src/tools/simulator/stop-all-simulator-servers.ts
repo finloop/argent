@@ -26,6 +26,9 @@ export function createStopAllSimulatorServersTool(
           stopped.push(urn);
         }
       }
+      // Vega needs no teardown here: input is one-shot `adb shell inputd-cli`
+      // and describe removes its own `adb forward`, so there is no persistent
+      // on-device server or host process to stop.
       return { stopped };
     },
   };

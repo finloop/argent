@@ -28,6 +28,13 @@ export interface DescribeNode {
   disabled?: boolean;
   password?: boolean;
   scrollHidden?: number;
+  // Vega (Fire TV) is D-pad driven, so "where is the cursor" is the key signal.
+  // `focused` is the element holding input focus; `selected` is the visually
+  // highlighted / active item (e.g. the current nav tab). On Vega the toolkit
+  // often reports the highlighted item via `selected` while `focused` stays
+  // false, so both are surfaced. Other platforms leave these unset.
+  focused?: boolean;
+  selected?: boolean;
 }
 
 export const describeNodeSchema: z.ZodType<DescribeNode> = z.lazy(() =>
@@ -47,6 +54,8 @@ export const describeNodeSchema: z.ZodType<DescribeNode> = z.lazy(() =>
       disabled: z.boolean().optional(),
       password: z.boolean().optional(),
       scrollHidden: z.number().int().nonnegative().optional(),
+      focused: z.boolean().optional(),
+      selected: z.boolean().optional(),
     })
     .passthrough()
 );
@@ -56,7 +65,14 @@ export const describeNodeSchema: z.ZodType<DescribeNode> = z.lazy(() =>
 // `source` (e.g. to decide whether to also call `native-find-views` for a
 // richer tree) need to distinguish the Android cases from an iOS native-
 // devtools fallback — which a shared label would hide.
-export type DescribeSource = "ax-service" | "native-devtools" | "uiautomator" | "android-devtools";
+export type DescribeSource =
+  | "ax-service"
+  | "native-devtools"
+  | "uiautomator"
+  | "android-devtools"
+  // Vega (Fire TV) on-device automation toolkit, reached over adb-forwarded
+  // JSON-RPC `getPageSource`. Emits a real parent/child tree → nested rendering.
+  | "vega-automation";
 
 // Internal shape produced by the per-platform adapters. The `tree` is consumed
 // by the formatter in `format-tree.ts` and then dropped before the tool replies

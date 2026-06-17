@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# End-to-end CI smoke test for argent's Vega (Fire TV) `remote` + `screenshot`
+# tools, built from THIS branch's source. Runs INSIDE the vega-virtual-device-
+# host container with the VVD already booted and ready — i.e. as the `script:`
+# of finloop/vega-virtual-device-action (see .github/workflows/vega-vvd-e2e.yml).
+#
+# It drives the tools through the tool-server's HTTP API (the same way
+# wayland-e2e.yml drives the Android path), so it exercises the real code:
+#   - screenshot → `adb emu screenrecord` (host-side, no native host binary)
+#   - remote     → `adb shell inputd-cli` (the path that USED to go through the
+#                  bundled vega-fast-cli host binary — now pure adb)
+#
+# There is intentionally no vega-fast-cli probe anymore: the host binary is gone,
+# so the arch/glibc question it raised is moot. `remote` working here proves the
+# adb/inputd-cli replacement drives the device.
+#
+# Prereq: the workspace is already built (`npm ci` + `tsc --build` on the runner,
+# bind-mounted in at /workspace), so `packages/tool-server/dist/index.js` exists.
+#
+# NOT `set -e`: gated checks are captured for a per-tool summary, then we exit
+# non-zero if any failed.
+set -uo pipefail
+
+PORT="${ARGENT_PORT:-3033}"
+OUT_DIR="${OUT_DIR:-artifacts}"
+mkdir -p "$OUT_DIR"
+KEPLER_VPKG="${KEPLER_VPKG:-fixtures/keplervideoapp_aarch64.vpkg}"
+APP_PKG="${APP_PKG:-com.amazondeveloper.keplervideoapp}"
+APP_ID="${APP_ID:-${APP_PKG}.main}"
+TOOLS_URL="http://127.0.0.1:${PORT}"
+
+# /tmp is lost when the container exits; copy logs into the uploaded artifact dir.
+# shellcheck disable=SC2329  # invoked indirectly via the EXIT trap below
+copy_logs() { cp /tmp/tool-server.log /tmp/*-app.log "$OUT_DIR/" 2>/dev/null || true; }
+trap copy_logs EXIT
+
+FAILURES=()
+fail() { echo "FAIL: $*"; FAILURES+=("$*"); }
+group() { echo "::group::$*"; }
+endg() { echo "::endgroup::"; }
+
+# Call a tool over HTTP: post_tool <id> <json-args>. Prints the raw response.
+post_tool() {
+  curl -fsS -m 60 -X POST "${TOOLS_URL}/tools/$1" \
+    -H 'Content-Type: application/json' -d "$2" 2>/dev/null
+}
+
+# Dig a dotted field out of a tool response, tolerating the `{data:{…}}` wrapper.
+# jget '<json>' path.to.field
+jget() {
+  python3 - "$1" "$2" <<'PY'
+import sys, json
+try:
+    obj = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+node = obj.get("data", obj) if isinstance(obj, dict) else obj
+for key in sys.argv[2].split("."):
+    if isinstance(node, dict) and key in node:
+        node = node[key]
+    else:
+        sys.exit(0)
+print(node if not isinstance(node, (dict, list)) else json.dumps(node))
+PY
+}
+
+# PNG non-black check: a black capture decompresses to ~all-zero bytes (~0.000);
+# the kepler app is a DARK media UI that renders ~0.01+, so the floor is 0.004
+# (matches the action repo's navigation script). Prints WxH + the fraction.
+NONBLACK_MIN_FRAC="${NONBLACK_MIN_FRAC:-0.004}"
+nonblack() {
+  python3 - "$1" "$NONBLACK_MIN_FRAC" <<'PY'
+import sys, zlib, struct
+try:
+    d = open(sys.argv[1], "rb").read()
+except OSError:
+    sys.exit(1)
+if d[:8] != b"\x89PNG\r\n\x1a\n":
+    sys.exit(1)
+i, idat, w, h = 8, bytearray(), 0, 0
+while i + 8 <= len(d):
+    ln = struct.unpack(">I", d[i:i + 4])[0]; t = d[i + 4:i + 8]
+    if t == b"IHDR": w, h = struct.unpack(">II", d[i + 8:i + 16])
+    if t == b"IDAT": idat += d[i + 8:i + 8 + ln]
+    i += 12 + ln
+    if t == b"IEND": break
+raw = zlib.decompress(bytes(idat))
+frac = (len(raw) - raw.count(0)) / len(raw) if raw else 0.0
+sys.stderr.write(f"{w}x{h} nonblack_frac={frac:.4f}\n")
+sys.exit(0 if frac > float(sys.argv[2]) else 1)
+PY
+}
+
+# ── Environment ─────────────────────────────────────────────────────────────
+group "Environment"
+echo "node $(node -v 2>/dev/null || echo '<none>')"
+adb version 2>/dev/null | head -1 || echo "adb <none>"
+echo "vega $(vega -v 2>/dev/null | tr '\n' ' ' || echo '<none>')"
+if test -f packages/tool-server/dist/index.js; then
+  echo "tool-server dist: present"
+else
+  echo "ERROR: packages/tool-server/dist/index.js missing — build the workspace first"; exit 1
+fi
+endg
+
+# ── Start the tool-server (built from this branch) ──────────────────────────
+group "Start tool-server"
+: > /tmp/tool-server.log
+setsid env ARGENT_PORT="$PORT" node packages/tool-server/dist/index.js start \
+  </dev/null >/tmp/tool-server.log 2>&1 &
+ready=""
+for _ in $(seq 1 30); do
+  if curl -fsS -o /dev/null "${TOOLS_URL}/tools" 2>/dev/null; then ready=1; break; fi
+  sleep 1
+done
+if [ -z "$ready" ]; then echo "ERROR: tool-server not ready"; cat /tmp/tool-server.log; exit 1; fi
+echo "tool-server up at ${TOOLS_URL}"
+endg
+
+# ── adb + install/launch the kepler app ─────────────────────────────────────
+group "adb sees the VVD"
+adb start-server >/dev/null 2>&1 || true
+timeout 60 adb wait-for-device || { echo "ERROR: adb never saw the device"; exit 1; }
+adb devices -l
+endg
+
+group "Install + launch kepler video app"
+VPKG_ABS="$(readlink -f "$KEPLER_VPKG" 2>/dev/null || echo "$KEPLER_VPKG")"
+[ -f "$VPKG_ABS" ] || { echo "ERROR: fixture vpkg not found at ${VPKG_ABS}"; exit 1; }
+echo "vpkg: ${VPKG_ABS} ($(stat -c%s "$VPKG_ABS" 2>/dev/null || echo '?') bytes)"
+# `vega device <sub>` targets the single connected VVD (no -d; see vega-cli.ts).
+vega device uninstall-app -a "$APP_ID" >/dev/null 2>&1 || true
+vega device install-app -p "$VPKG_ABS" >/tmp/install-app.log 2>&1 || true
+if ! grep -qi success /tmp/install-app.log; then
+  echo "ERROR: vega install-app did not report success"; cat /tmp/install-app.log; exit 1
+fi
+vega device launch-app -a "$APP_ID" >/tmp/launch-app.log 2>&1 || true
+tail -3 /tmp/launch-app.log 2>/dev/null || true
+running=""
+for attempt in $(seq 1 30); do
+  apps="$(vega device running-apps 2>/dev/null || true)"
+  if [[ "$apps" == *"$APP_PKG"* ]]; then running=1; echo "app ${APP_ID} is running"; break; fi
+  echo "attempt ${attempt}: ${APP_ID} not running yet; retrying..."
+  sleep 2
+done
+[ -z "$running" ] && echo "WARNING: ${APP_ID} not in running-apps; continuing anyway"
+sleep 10
+endg
+
+# ── Discover the Vega serial via list-devices ───────────────────────────────
+group "Discover Vega device"
+SERIAL=""
+for attempt in $(seq 1 12); do
+  resp="$(post_tool list-devices '{}')"
+  SERIAL="$(python3 - "$resp" <<'PY'
+import sys, json
+try:
+    o = json.loads(sys.argv[1]); o = o.get("data", o)
+    print(next((d.get("serial") or d.get("udid") or d.get("id")
+                for d in o.get("devices", []) if d.get("platform") == "vega"), ""))
+except Exception:
+    pass
+PY
+)"
+  [ -n "$SERIAL" ] && break
+  echo "attempt ${attempt}: no Vega device yet; retrying..."
+  sleep 5
+done
+[ -z "$SERIAL" ] && { echo "ERROR: no Vega device from list-devices"; post_tool list-devices '{}'; exit 1; }
+echo "Vega serial: ${SERIAL}"
+endg
+
+# ── TEST 1: screenshot (adb emu — arch-agnostic baseline) ───────────────────
+group "TEST screenshot"
+SHOT_BEFORE="${OUT_DIR}/kepler-before.png"
+captured=""
+for attempt in 1 2 3 4 5; do
+  rm -f "$SHOT_BEFORE"
+  resp="$(post_tool screenshot "$(printf '{"udid":"%s","scale":1}' "$SERIAL")")"
+  # The HTTP screenshot result is an image artifact: {data:{image:{hostPath,…}}}.
+  src="$(jget "$resp" image.hostPath)"; [ -n "$src" ] || src="$(jget "$resp" path)"
+  [ -n "$src" ] && [ -f "$src" ] && cp "$src" "$SHOT_BEFORE" 2>/dev/null
+  if nonblack "$SHOT_BEFORE"; then captured=1; break; fi
+  echo "attempt ${attempt}: screenshot missing/black; retrying..."
+  echo "  response: ${resp:0:200}"
+  sleep 5
+done
+if [ -n "$captured" ]; then
+  echo "OK: screenshot is non-black -> ${SHOT_BEFORE}"
+else
+  fail "screenshot did not return a non-black image"
+fi
+endg
+
+# ── TEST 2: remote (adb inputd-cli — the headline) ──────────────────────────
+# A path of D-pad presses navigates the kepler UI in one round-trip. Success =
+# the tool returns the full press count; failure surfaces the device error
+# (e.g. inputd-cli missing / no focused surface).
+group "TEST remote (adb inputd-cli)"
+REMOTE_ARGS="$(printf '{"udid":"%s","button":["down","right","right","select"]}' "$SERIAL")"
+echo "remote args: ${REMOTE_ARGS}"
+resp="$(post_tool remote "$REMOTE_ARGS")" || resp=""
+count="$(jget "$resp" count)"
+echo "response: ${resp:0:300}"
+if [ -n "$count" ] && [ "$count" -ge 4 ] 2>/dev/null; then
+  echo "OK: remote injected ${count} presses via adb inputd-cli"
+else
+  fail "remote did not inject the expected presses (count='${count}')"
+fi
+# Capture the post-navigation screen (best-effort).
+resp="$(post_tool screenshot "$(printf '{"udid":"%s","scale":1}' "$SERIAL")")"
+src="$(jget "$resp" image.hostPath)"; [ -n "$src" ] || src="$(jget "$resp" path)"
+[ -n "$src" ] && [ -f "$src" ] && cp "$src" "${OUT_DIR}/kepler-after.png" 2>/dev/null && echo "saved ${OUT_DIR}/kepler-after.png"
+endg
+
+# ── Summary ─────────────────────────────────────────────────────────────────
+echo "::group::Summary"
+if [ "${#FAILURES[@]}" -eq 0 ]; then
+  echo "PASS: screenshot + remote both worked against the kepler app on the VVD"
+  echo "      using adb only — vega-fast-cli is no longer needed."
+  endg
+  exit 0
+fi
+echo "FAILED checks:"
+for f in "${FAILURES[@]}"; do echo "  - $f"; done
+endg
+exit 1
