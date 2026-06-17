@@ -3,7 +3,7 @@ import type { ServiceRef, ToolCapability, ToolDefinition } from "@argent/registr
 import { simulatorServerRef, type SimulatorServerApi } from "../../blueprints/simulator-server";
 import { chromiumCdpRef, type ChromiumCdpApi } from "../../blueprints/chromium-cdp";
 import { resolveDevice } from "../../utils/device-info";
-import { runVegaFastCli } from "../../utils/vega-fast-cli";
+import { injectVegaNamedKey, injectVegaText } from "../../utils/vega-input";
 import { charToKeyPress, NAMED_KEYS, SHIFT_KEYCODE } from "./key-codes";
 import { CHROMIUM_NAMED_KEYS, charToChromiumKey } from "./chromium-keys";
 
@@ -108,6 +108,7 @@ Returns { typed: string, keys: number }. Fails if an unsupported key name is pro
 Provide text, key, or both. Use instead of paste when paste is unreliable or unsupported by the focused field.`,
   zodSchema,
   capability,
+  // Vega injects via adb + on-device inputd-cli and needs no simulator-server.
   services: (params): Record<string, ServiceRef> => {
     const device = resolveDevice(params.udid);
     if (device.platform === "chromium") {
@@ -125,14 +126,14 @@ Provide text, key, or both. Use instead of paste when paste is unreliable or uns
       return runChromium(chromium, params);
     }
     if (device.platform === "vega") {
-      // Shell out to vega-fast-cli; it maps named keys + injects via the on-device server.
+      // Inject via the on-device inputd-cli (named key → KEY_, text → send_text).
       let keysPressed = 0;
       if (params.key) {
-        await runVegaFastCli(["key", params.key]);
+        await injectVegaNamedKey(params.key);
         keysPressed++;
       }
       if (params.text) {
-        await runVegaFastCli(["type", params.text]);
+        await injectVegaText(params.text);
         keysPressed += [...params.text].length;
       }
       return { typed: params.text ?? params.key ?? "", keys: keysPressed };
