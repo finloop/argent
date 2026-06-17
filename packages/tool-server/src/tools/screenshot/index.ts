@@ -1,10 +1,8 @@
 import { z } from "zod";
-import type { ServiceRef, ToolCapability, ToolDefinition } from "@argent/registry";
+import type { ToolCapability, ToolDefinition } from "@argent/registry";
 import { simulatorServerRef, type SimulatorServerApi } from "../../blueprints/simulator-server";
 import { resolveDevice } from "../../utils/device-info";
 import { httpScreenshot } from "../../utils/simulator-client";
-import { captureVegaScreenshotPng } from "../../utils/vega-screen";
-import { ensureDep } from "../../utils/check-deps";
 import { requireArtifacts, type ArtifactHandle } from "../../artifacts";
 
 const zodSchema = z.object({
@@ -45,35 +43,22 @@ interface Result {
 const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
-  vega: { virtual: true },
 };
 
 export const screenshotTool: ToolDefinition<Params, Result> = {
   id: "screenshot",
-  description: `Capture a screenshot of the device screen (iOS simulator, Android emulator, or Vega Virtual Device). Returns { url, path }; the MCP adapter renders it as a visible image unless the caller passed includeImageInContext: false.
+  description: `Capture a screenshot of the device screen (iOS simulator or Android emulator). Returns { url, path }; the MCP adapter renders it as a visible image unless the caller passed includeImageInContext: false.
 Use when you need a baseline image before an interaction or to inspect the current screen state after a delay.
-Fails if the simulator-server / emulator backend is not reachable for the given device. On Vega the screen is captured from the Virtual Device via the Android emulator console (host-side, requires adb); rotation is ignored (the TV framebuffer is fixed landscape).`,
+Fails if the simulator-server / emulator backend is not reachable for the given device.`,
   alwaysLoad: true,
-  searchHint: "device simulator emulator vega fire tv screen image capture baseline",
+  searchHint: "device simulator emulator screen image capture baseline",
   zodSchema,
   outputHint: "image",
   capability,
-  // Vega captures host-side via QMP and needs no simulator-server; resolving the
-  // (iOS/Android-only) blueprint for a Vega device would throw.
-  services: (params): Record<string, ServiceRef> => {
-    const device = resolveDevice(params.udid);
-    return device.platform === "vega" ? {} : { simulatorServer: simulatorServerRef(device) };
-  },
+  services: (params) => ({
+    simulatorServer: simulatorServerRef(resolveDevice(params.udid)),
+  }),
   async execute(services, params, ctx) {
-    const device = resolveDevice(params.udid);
-    if (device.platform === "vega") {
-      // Primary capture is the Android emulator console via `adb emu` (the VVD
-      // is emulator-derived); it falls back to QMP screendump internally.
-      await ensureDep("adb");
-      const path = await captureVegaScreenshotPng({ scale: params.scale });
-      const image = await requireArtifacts(ctx).register(path, { mimeType: "image/png" });
-      return { image };
-    }
     const api = services.simulatorServer as SimulatorServerApi;
     const signal = ctx?.signal ?? AbortSignal.timeout(16_000);
     const { path } = await httpScreenshot(api, params.rotation, signal, params.scale);

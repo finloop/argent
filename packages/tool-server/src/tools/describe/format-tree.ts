@@ -39,13 +39,6 @@ const CONTENT_ROLES = new Set([
   "AXHeading",
   "AXTabBar",
   "AXAdjustable",
-  // Vega UIToolkit roles (lowercase, distinct from iOS AX* / Android's
-  // capitalised names). The toolkit emits these as leaves (e.g. a poster
-  // `image` or a label `text`); listing them here keeps undecorated leaves
-  // from being dropped by the nested renderer's content gate.
-  "button",
-  "text",
-  "image",
 ]);
 
 function clampFinite(n: number): number {
@@ -81,8 +74,6 @@ function formatFlags(n: DescribeNode): string {
   if (n.longClickable) flags.push("long-clickable");
   if (n.scrollable) flags.push("scrollable");
   if (n.checkable) flags.push(n.checked ? "checked" : "checkable");
-  if (n.focused) flags.push("focused");
-  if (n.selected) flags.push("selected");
   if (n.disabled) flags.push("disabled");
   if (n.password) flags.push("password");
   if (typeof n.scrollHidden === "number" && n.scrollHidden > 0) {
@@ -173,11 +164,7 @@ export interface FormatDescribeOptions {
 
 export function formatDescribeTree(root: DescribeNode, opts: FormatDescribeOptions): string {
   const mode: "flat" | "nested" =
-    opts.source === "uiautomator" ||
-    opts.source === "android-devtools" ||
-    opts.source === "vega-automation"
-      ? "nested"
-      : "flat";
+    opts.source === "uiautomator" || opts.source === "android-devtools" ? "nested" : "flat";
   const header: string[] = [];
   header.push(`Source: ${opts.source}`);
   header.push(`Mode: ${mode}`);

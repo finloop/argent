@@ -39,8 +39,7 @@ jobs:
 
       - run: npx tsc --build
 
-      - name: Build argent package
-        run: npm run build -w @swmansion/argent
+      - run: npm run build -w @swmansion/argent
 
       # Keep the artifact build checks aligned with the publish workflow so the
       # uploaded tarball has the same required runtime assets as an npm release.

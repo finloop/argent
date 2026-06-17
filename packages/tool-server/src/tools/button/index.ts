@@ -33,10 +33,6 @@ interface Result {
 const BUTTONS_BY_PLATFORM: Record<Platform, ReadonlySet<Params["button"]>> = {
   ios: new Set(["home", "power", "volumeUp", "volumeDown", "appSwitch", "actionButton"]),
   android: new Set(["home", "back", "power", "volumeUp", "volumeDown", "appSwitch"]),
-  // Vega is remote-driven: hardware buttons / D-pad go through the dedicated
-  // `remote` tool, and this tool's capability omits `vega` so a Vega device is
-  // rejected before this map is consulted. Empty set keeps the record total.
-  vega: new Set(),
 };
 
 const capability: ToolCapability = {

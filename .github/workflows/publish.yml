@@ -50,8 +50,7 @@ jobs:
 
       - run: npx tsc --build
 
-      - name: Build argent package
-        run: npm run build -w @swmansion/argent
+      - run: npm run build -w @swmansion/argent
 
       # Per-platform bundle layout (commit 80e724a). darwin is always required;
       # Linux is gated by ARGENT_REQUIRE_LINUX_BINARY so the existing release

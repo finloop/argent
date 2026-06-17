@@ -4,7 +4,6 @@ import { dispatchByPlatform } from "../../utils/cross-platform-tool";
 import type { ReinstallAppResult, ReinstallAppServices } from "./types";
 import { iosImpl } from "./platforms/ios";
 import { androidImpl } from "./platforms/android";
-import { vegaImpl } from "./platforms/vega";
 
 const zodSchema = z.object({
   udid: z
@@ -14,12 +13,12 @@ const zodSchema = z.object({
   bundleId: z
     .string()
     .describe(
-      "App identifier that matches the bundle at `appPath`. iOS: bundle id (used to uninstall first). Android: package name (used to uninstall first; the install itself identifies the app from the APK). Vega: interactive component app id (e.g. com.example.app.main), used to uninstall first."
+      "App identifier that matches the bundle at `appPath`. iOS: bundle id (used to uninstall first). Android: package name (used to uninstall first; the install itself identifies the app from the APK)."
     ),
   appPath: z
     .string()
     .describe(
-      "Path to the app bundle. iOS: `.app` directory (e.g. ./build/.../MyApp.app). Android: `.apk` file (e.g. android/app/build/outputs/apk/debug/app-debug.apk). Vega: `.vpkg` file. Relative paths are resolved from the current working directory."
+      "Path to the app bundle. iOS: `.app` directory (e.g. ./build/.../MyApp.app). Android: `.apk` file (e.g. android/app/build/outputs/apk/debug/app-debug.apk). Relative paths are resolved from the current working directory."
     ),
 });
 
@@ -28,7 +27,6 @@ type Params = z.infer<typeof zodSchema>;
 const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
-  vega: { virtual: true, device: true },
 };
 
 export const reinstallAppTool: ToolDefinition<Params, ReinstallAppResult> = {
@@ -43,13 +41,11 @@ Returns { reinstalled, bundleId }. Fails if the app path does not exist or the p
     ReinstallAppServices,
     ReinstallAppServices,
     Params,
-    ReinstallAppResult,
-    ReinstallAppServices
+    ReinstallAppResult
   >({
     toolId: "reinstall-app",
     capability,
     ios: iosImpl,
     android: androidImpl,
-    vega: vegaImpl,
   }),
 };

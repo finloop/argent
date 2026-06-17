@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { ToolDefinition } from "@argent/registry";
 import { listAndroidDevices, listAvds } from "../../utils/adb";
 import { listIosSimulators, type IosSimulator } from "../../utils/ios-devices";
-import { listVegaDevices, type VegaDevice } from "../../utils/vega-devices";
 
 type IosDevice = IosSimulator & { platform: "ios" };
 
@@ -17,7 +16,7 @@ type AndroidDevice = {
 };
 
 type ListDevicesResult = {
-  devices: Array<IosDevice | AndroidDevice | VegaDevice>;
+  devices: Array<IosDevice | AndroidDevice>;
   avds: Array<{ name: string }>;
 };
 
@@ -41,9 +40,8 @@ function sortAndroid(a: AndroidDevice, b: AndroidDevice): number {
 
 // Float booted/ready devices to the top of the merged list regardless of
 // platform — without this, all iOS entries are emitted before any Android.
-function readinessRank(d: IosDevice | AndroidDevice | VegaDevice): number {
+function readinessRank(d: IosDevice | AndroidDevice): number {
   if (d.platform === "ios") return d.state === "Booted" ? 0 : 1;
-  if (d.platform === "vega") return d.state === "running" || d.state === "device" ? 0 : 1;
   return d.state === "device" ? 0 : 1;
 }
 
@@ -51,21 +49,19 @@ const zodSchema = z.object({});
 
 export const listDevicesTool: ToolDefinition<Record<string, never>, ListDevicesResult> = {
   id: "list-devices",
-  description: `List iOS simulators, Android devices/emulators, and Vega (Fire TV) devices in one place.
-Use at the start of a session to pick a target id ('udid' for iOS entries, 'serial' for Android/Vega entries) to pass to interaction tools, and to see which targets are already running.
-Returns { devices, avds } where each device carries a 'platform' discriminator ('ios', 'android', or 'vega'), and 'avds' lists Android AVDs that can be booted via boot-device.
-Booted/ready devices are listed first. Platforms whose CLI is unavailable are silently omitted — an empty result usually means xcode-select, Android platform-tools, or the Vega SDK is not installed.`,
+  description: `List iOS simulators and Android devices/emulators in one place.
+Use at the start of a session to pick a target id ('udid' for iOS entries, 'serial' for Android) to pass to interaction tools, and to see which targets are already running.
+Returns { devices, avds } where each device carries a 'platform' discriminator ('ios' or 'android'), and 'avds' lists Android AVDs that can be booted via boot-device.
+Booted/ready devices are listed first. Platforms whose CLI is unavailable are silently omitted — an empty result usually means xcode-select or Android platform-tools is not installed.`,
   alwaysLoad: true,
-  searchHint:
-    "list devices simulators emulators avd serial udid ios android vega fire tv session start",
+  searchHint: "list devices simulators emulators avd serial udid ios android session start",
   zodSchema,
   services: () => ({}),
   async execute(_services, _params) {
-    const [ios, android, avds, vega] = await Promise.all([
+    const [ios, android, avds] = await Promise.all([
       listIosSimulators(),
       listAndroidDevices().catch(() => []),
       listAvds(),
-      listVegaDevices().catch(() => []),
     ]);
     const iosTagged: IosDevice[] = ios.map((s) => ({ platform: "ios", ...s }));
     iosTagged.sort(sortIos);
@@ -80,11 +76,7 @@ Booted/ready devices are listed first. Platforms whose CLI is unavailable are si
     }));
     androidTagged.sort(sortAndroid);
 
-    const devices: Array<IosDevice | AndroidDevice | VegaDevice> = [
-      ...iosTagged,
-      ...androidTagged,
-      ...vega,
-    ];
+    const devices: Array<IosDevice | AndroidDevice> = [...iosTagged, ...androidTagged];
     devices.sort((a, b) => readinessRank(a) - readinessRank(b));
 
     return { devices, avds };

@@ -499,8 +499,3 @@ if (fs.existsSync(apkSrc)) {
       `or: bash packages/native-devtools-android/scripts/build.sh`
   );
 }
-
-// Vega ships no host binary: input goes through `adb shell inputd-cli` and
-// describe through `adb forward` to the on-device automation toolkit, so there
-// is nothing to bundle here (see packages/tool-server/src/utils/vega-input.ts
-// and vega-inspect.ts).
