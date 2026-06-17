@@ -71,7 +71,7 @@ export const networkLogsTool: ToolDefinition<z.infer<typeof zodSchema>, string> 
   description: `Retrieve captured network (HTTP) requests from the running React Native app.
 Returns a paginated list of requests with method, URL, status, resource type, size, and duration.
 Each entry includes a requestId that can be passed to view-network-request-details for full details.
-Network interception is injected into the JS runtime — it captures fetch() calls.
+Scope: the interceptor hooks \`fetch()\` ONLY. Requests made via \`XMLHttpRequest\` — and libraries built on it, e.g. axios — are NOT captured, so an app using those will show no traffic here even when it is making requests.
 Use when inspecting outbound HTTP traffic or debugging API calls in the running app.
 Fails if the app is not connected or no network interceptor could be injected.`,
   zodSchema,
@@ -90,7 +90,7 @@ Fails if the app is not connected or no network interceptor could be injected.`,
     const { total } = JSON.parse(countRaw as string) as { total: number };
 
     if (total === 0) {
-      return "No network traffic captured. Make sure the app is running and making HTTP requests. Network interception is active — it captures fetch() calls.";
+      return "No network traffic captured. Make sure the app is running and making HTTP requests. Note: only fetch() is intercepted — XMLHttpRequest/axios traffic is not captured, so an app using those will show nothing here.";
     }
 
     const pageCount = Math.ceil(total / ITEMS_PER_PAGE);

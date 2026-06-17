@@ -56,8 +56,10 @@ const HOOK_NOT_PRESENT_ERRORS = new Set([
 ]);
 
 const HOOK_MISSING_MESSAGE =
-  "React DevTools hook not present. Ensure the app is in development mode. " +
-  "Try calling react-profiler-start first to re-inject the hook.";
+  "React DevTools hook not present. Ensure the app is a development build, and try calling " +
+  "react-profiler-start first to re-inject the hook. Note: on Vega (Fire TV, RN 0.72) the React " +
+  "DevTools backend isn't injected and the react-profiler-* suite is unsupported — use the " +
+  "amazon-devices-buildertools-mcp server for Vega performance work.";
 
 type ParsedRenders =
   | Record<

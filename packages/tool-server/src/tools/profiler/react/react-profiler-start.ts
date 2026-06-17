@@ -142,7 +142,11 @@ Fails if the Hermes runtime is not reachable or the Metro CDP connection cannot 
 
       if (!state.hookExists) {
         throw new Error(
-          "React DevTools is not available in this app. This usually means the app is a production build. Ask the user to run a development build of the app, then retry."
+          "React DevTools backend is not available in this runtime. Common causes: (1) a production " +
+            "build — ask the user to run a development build and retry; (2) a runtime that doesn't inject " +
+            "the React DevTools backend at all, notably Vega (Fire TV, RN 0.72), where the react-profiler-* " +
+            "suite is unsupported. For Vega performance work, use the amazon-devices-buildertools-mcp server " +
+            "(analyze_perfetto_traces, get_app_hot_functions)."
         );
       }
 
