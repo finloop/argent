@@ -62,9 +62,7 @@ Fails if the simulator-server / emulator backend is not reachable for the given 
   // (iOS/Android-only) blueprint for a Vega device would throw.
   services: (params): Record<string, ServiceRef> => {
     const device = resolveDevice(params.udid);
-    return device.platform === "vega"
-      ? {}
-      : { simulatorServer: simulatorServerRef(device) };
+    return device.platform === "vega" ? {} : { simulatorServer: simulatorServerRef(device) };
   },
   async execute(services, params, ctx) {
     const device = resolveDevice(params.udid);
