@@ -44,7 +44,10 @@ interface Result {
 }
 
 const capability: ToolCapability = {
-  vega: { virtual: true, device: true },
+  // Virtual-Device-only in v1: physical Fire TV is unverified, and the Vega
+  // handler targets the running VVD via its emulator/QMP socket. Keep `vega`
+  // uniformly `virtual` across the tool suite until hardware is validated.
+  vega: { virtual: true },
 };
 
 export const readDeviceLogsTool: ToolDefinition<Params, Result> = {

@@ -108,6 +108,10 @@ describe("formatDescribeTree (vega-automation → nested)", () => {
     expect(text).toMatch(/\[[^\]]*selected[^\]]*\]/);
     // long synopsis text survived entity decoding (no raw &#x.. left)
     expect(text).not.toMatch(/&#x[0-9A-Fa-f]+;/);
+    // Vega is remote-driven: the header frames coordinates as D-pad hints, not
+    // tap targets — the iOS/Android tap formula must not appear.
+    expect(text).toContain("remote-driven");
+    expect(text).not.toContain("tap_x = frame.x");
   });
 });
 

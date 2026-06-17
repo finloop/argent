@@ -28,14 +28,17 @@ type Params = z.infer<typeof zodSchema>;
 const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
-  vega: { virtual: true, device: true },
+  // Virtual-Device-only in v1: physical Fire TV is unverified, and the Vega
+  // handlers target the running VVD via its emulator/QMP socket. Keep `vega`
+  // uniformly `virtual` across the tool suite until hardware is validated.
+  vega: { virtual: true },
 };
 
 export const reinstallAppTool: ToolDefinition<Params, ReinstallAppResult> = {
   id: "reinstall-app",
-  description: `Install or reinstall an app on the device. The previous installation (if any) is uninstalled first so app data and runtime permissions are cleared on both platforms.
+  description: `Install or reinstall an app on the device. The previous installation (if any) is uninstalled first so app data and runtime permissions are cleared.
 Use for a full reinstall after rebuilding, or to start from a clean app state.
-Returns { reinstalled, bundleId }. Fails if the app path does not exist or the package does not match the platform (.app for iOS, .apk for Android).`,
+Returns { reinstalled, bundleId }. Fails if the app path does not exist or the package does not match the platform (.app for iOS, .apk for Android, .vpkg for Vega).`,
   zodSchema,
   capability,
   services: () => ({}),

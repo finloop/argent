@@ -37,9 +37,10 @@ const buttonSchema = z
       "Buttons: up/down/left/right (D-pad), select (OK), back, home, menu, playPause, " +
       "rewind, fastForward, next, previous, volumeUp, volumeDown, mute. " +
       'For multi-step navigation pass an array, e.g. ["up","right","right","select"] — ' +
-      "STRONGLY PREFER this over multiple `remote` calls: each call pays a ~1.6s device " +
-      "handshake, so one path of N presses (~1.6s + N*0.3s, one API round-trip) replaces " +
-      "N separate calls (N*~1.9s, N round-trips)."
+      "STRONGLY PREFER this over multiple `remote` calls: a whole path is injected in " +
+      "ONE `adb shell inputd-cli` round-trip (presses settle ~0.3s apart on-device), " +
+      "whereas N separate calls pay N adb round-trips plus N agent turns. The on-device " +
+      "settle is the same either way, so batching is pure savings."
   );
 
 const zodSchema = z.object({
@@ -73,7 +74,7 @@ export const remoteTool: ToolDefinition<Params, Result> = {
   description: `Press a TV remote / D-pad button (or a whole path of them) on a Vega (Fire TV) device.
 Vega apps are navigated with a directional remote, not touch — use this instead of gesture-tap/swipe (which do not apply on Vega). Move focus with up/down/left/right, confirm with select, go back with back, and use home/menu/playPause/rewind/fastForward/next/previous/volumeUp/volumeDown/mute for the corresponding remote keys.
 Single press: { button: "down" }. Repeat the same button: { button: "down", repeat: 3 }.
-Multi-step navigation: pass a path as { button: ["up","right","right","select"] } — it runs in ONE device round-trip and one tool call, dramatically faster than separate presses (each call pays a ~1.6s device handshake).
+Multi-step navigation: pass a path as { button: ["up","right","right","select"] } — it runs in ONE adb round-trip and one tool call, far cheaper than separate presses (which each pay their own adb round-trip and agent turn; the ~0.3s on-device settle between presses is the same either way).
 Returns { pressed, count }. Keys are injected on-device via inputd-cli so the focused app's focus engine moves (real remote/navigation events).`,
   alwaysLoad: true,
   searchHint:
