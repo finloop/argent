@@ -4,6 +4,7 @@ import type { ToolDefinition } from "@argent/registry";
 import { RN_ONLY_TOOL_CAPABILITY } from "./debugger-service-ref";
 import type { JsRuntimeDebuggerApi } from "../../blueprints/js-runtime-debugger";
 import { makeComponentTreeScript } from "../../utils/debugger/scripts/component-tree";
+import { isBindingTimeout, COMPONENT_TREE_UNRESPONSIVE_HINT } from "../../utils/debugger/vega-cdp";
 
 export interface RawEntry {
   id: number;
@@ -553,9 +554,17 @@ Use when you need tap coordinates for a React Native UI element. Returns a compa
       includeSkipped: params.includeSkipped,
       requestId,
     });
-    const response = await api.cdp.evaluateWithBinding(script, requestId, {
-      timeout: 15_000,
-    });
+    let response;
+    try {
+      response = await api.cdp.evaluateWithBinding(script, requestId, {
+        timeout: 15_000,
+      });
+    } catch (err) {
+      // Vega's Hermes rejects the injected script, so the binding never replies.
+      // Surface a clean unsupported message instead of a raw "binding timed out".
+      if (isBindingTimeout(err)) return COMPONENT_TREE_UNRESPONSIVE_HINT;
+      throw err;
+    }
 
     const raw = response.result;
     if (typeof raw !== "string") {

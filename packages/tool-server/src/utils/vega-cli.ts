@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 const execFileAsync = promisify(execFile);
@@ -70,6 +70,34 @@ export interface VegaRunResult {
 // device agent), so force the kill at the timeout boundary.
 const VEGA_KILL_SIGNAL = "SIGKILL" as const;
 
+/**
+ * Resolve a guaranteed-live working directory for the spawned `vega`/`kepler`
+ * child. The tool-server is a long-lived singleton; if it was started from a
+ * directory that is later removed (e.g. a git worktree torn down mid-session),
+ * `process.cwd()` itself throws ENOENT and any child inherits that dead cwd —
+ * the `vega` Python CLI then crashes in `config.py find_workspace -> os.getcwd()`
+ * with "getcwd: cannot access parent directories". adb-channel tools are immune
+ * (adb never calls getcwd), which is why only the CLI-backed Vega tools hit this.
+ *
+ * Validate the server's cwd and fall back to the OS temp dir (always present) so
+ * device-level `vega` commands — which don't need the project workspace — keep
+ * working without a full tool-server restart. Dependencies are injected so a unit
+ * test can simulate a missing cwd.
+ */
+export function resolveSpawnCwd(
+  getCwd: () => string = () => process.cwd(),
+  dirExists: (p: string) => boolean = existsSync,
+  fallback: string = tmpdir()
+): string {
+  try {
+    const cwd = getCwd();
+    if (dirExists(cwd)) return cwd;
+  } catch {
+    // process.cwd() throws when the directory was removed under the server.
+  }
+  return fallback;
+}
+
 function describeVegaFailure(args: string[], err: unknown): Error {
   const e = err as {
     code?: string | number | null;
@@ -104,6 +132,9 @@ export async function runVega(
   const vegaPath = await resolveVegaOrThrow();
   try {
     const { stdout, stderr } = await execFileAsync(vegaPath, args, {
+      // Pin to a guaranteed-live cwd so a since-deleted server cwd doesn't crash
+      // the `vega` CLI in os.getcwd() (see resolveSpawnCwd).
+      cwd: resolveSpawnCwd(),
       timeout: options.timeoutMs ?? 60_000,
       killSignal: VEGA_KILL_SIGNAL,
       maxBuffer: 64 * 1024 * 1024,
