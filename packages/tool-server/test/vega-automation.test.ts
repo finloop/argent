@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mock the adb + console-port helpers the toolkit-flag helper leans on.
 const runAdb = vi.fn();
 vi.mock("../src/utils/adb", () => ({ runAdb: (...a: unknown[]) => runAdb(...a) }));
-vi.mock("../src/utils/vega-qmp", () => ({ discoverVegaConsolePort: vi.fn(async () => 5554) }));
+vi.mock("../src/utils/vega-vvd", () => ({ discoverVegaConsolePort: vi.fn(async () => 5554) }));
 
 import { ensureAutomationToolkitEnabled } from "../src/utils/vega-automation";
 

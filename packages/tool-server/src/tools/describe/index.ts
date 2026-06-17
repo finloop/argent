@@ -26,7 +26,7 @@ const zodSchema = z.object({
   udid: z
     .string()
     .min(1)
-    .describe("Target device id from `list-devices` (iOS UDID or Android serial)."),
+    .describe("Target device id from `list-devices` (iOS UDID, Android serial, or Vega serial)."),
   bundleId: z
     .string()
     .optional()
@@ -42,7 +42,12 @@ type Params = z.infer<typeof zodSchema>;
 const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
-  vega: { virtual: true, device: true },
+  // Virtual-Device-only in v1: the Vega path is VVD-specific (it discovers the
+  // running VVD's emulator/QMP socket), and physical Fire TV is unverified. On
+  // hardware the toolkit fetch has no VVD to reach, so declaring `device` here
+  // would advertise support that silently returns an empty tree. Tightening to
+  // `virtual` lets the capability gate reject a physical device up front.
+  vega: { virtual: true },
 };
 
 // `describe` doesn't fit dispatchByPlatform's standard service-typed
@@ -66,12 +71,13 @@ with tap coordinates. When no dialog is present, it returns the foreground app's
 
 Returns \`{ description, source }\` where \`description\` is a text rendering of the UI tree — one
 line per element with its role, label/value/id, interactivity flags, and frame. Frame coordinates
-are normalized [0,1] fractions of the screen width/height (not pixels) — the same space as
-gesture-tap / gesture-swipe / gesture-pinch.
+are normalized [0,1] fractions of the screen width/height (not pixels).
 
-To tap an element use the centre of its frame: \`tap_x = frame.x + frame.width / 2\`,
-\`tap_y = frame.y + frame.height / 2\`. The same formula appears in the response header so it
-can be applied to a line in isolation.
+On iOS/Android these are the same space as gesture-tap / gesture-swipe / gesture-pinch; to tap an
+element use the centre of its frame: \`tap_x = frame.x + frame.width / 2\`,
+\`tap_y = frame.y + frame.height / 2\` (the same formula appears in the response header). On Vega
+there is no tap — use the frames as spatial hints to plan D-pad moves with the \`remote\` tool
+(compare the target's frame to the \`[focused]\` element's and count rows/columns).
 
 For app-scoped inspection with full UIKit properties (accessibilityIdentifier, viewClassName),
 use native-describe-screen with an explicit bundleId instead (iOS only).

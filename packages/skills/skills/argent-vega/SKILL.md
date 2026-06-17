@@ -3,7 +3,7 @@ name: argent-vega
 description: Drive an Amazon Vega (Fire TV) app with argent — list/launch/restart/reinstall apps, inspect the on-screen element tree (describe), navigate with the TV remote / D-pad, type text, screenshot, read device logs, connect the JS debugger. Use when the target is a Vega / Fire TV device (React Native for Vega, vega/kepler CLI), not an iOS simulator or Android emulator.
 ---
 
-Vega (Fire TV) apps = React Native 0.72 + Hermes, driven by a **D-pad remote (not touch)** via the `vega`/`kepler` CLI + a QEMU Virtual Device (VVD). argent platform `"vega"`. Use `remote`, never `gesture-*` (gestures error on Vega).
+Vega (Fire TV) apps = React Native 0.72 + Hermes on a QEMU Virtual Device (VVD), **driven by a D-pad remote (not touch)**. argent platform `"vega"`: input / screenshot / describe go over `adb`, app lifecycle over the `vega`/`kepler` CLI. Use `remote`, never `gesture-*` (gestures error on Vega).
 
 Prereqs: Vega SDK on PATH (`source ~/vega/env`). Start the VVD yourself — `vega virtual-device start` (argent won't boot it). v1 assumes one running VVD.
 
@@ -29,7 +29,7 @@ Prereqs: Vega SDK on PATH (`source ~/vega/env`). Start the VVD yourself — `veg
 ## Input
 
 - `remote {udid, button}` — `button` is a single key **or a whole path**. Keys: `up`/`down`/`left`/`right`, `select`, `back`, `home`, `menu`, `playPause`, `rewind`, `fastForward`. Single: `{button:"down"}`. Repeat one key: `{button:"down", repeat:3}`.
-- `remote {udid, button:[...]}` — run a **whole path in one call**, e.g. `{button:["up","right","right","select"]}`. **Strongly prefer this for any multi-step move.** Each `remote` call pays a fixed ~1.6s device handshake, so one path of N presses (~1.6s + N·0.3s, one API round-trip) replaces N separate calls (N·~1.9s, N round-trips). A 3-hop drops ~5.9s→~2.6s; longer paths win more.
+- `remote {udid, button:[...]}` — run a **whole path in one call**, e.g. `{button:["up","right","right","select"]}`. **Strongly prefer this for any multi-step move.** A path is injected in one `adb shell inputd-cli` round-trip (presses settle ~0.3s apart on-device); N separate calls instead pay N adb round-trips plus N agent turns for the same on-device settle. Batching is pure savings — the longer the path, the bigger the win.
 - `keyboard {udid, text}` or `{udid, key:"enter"}` — type into a focused field (focus it with the D-pad first).
 
 **Typing text — never spell it out on the on-screen keyboard.** When a text field is focused and a soft keyboard appears, do **not** D-pad to each letter and `select` it (dozens of round-trips per word). Instead: move focus onto the text field with the D-pad, then send the whole string in **one** `keyboard {udid, text:"…"}` call — it injects the entire string host-side via `inputd-cli send_text` in a single shot (one round-trip regardless of length). Only fall back to picking keys on the on-screen keyboard if a `describe` after the send confirms the field didn't receive the text (some native fields reject injected text). Press submit/enter with `keyboard {udid, key:"enter"}` or the field's on-screen confirm button.

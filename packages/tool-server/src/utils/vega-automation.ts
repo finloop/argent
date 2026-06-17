@@ -1,5 +1,5 @@
 import { runAdb } from "./adb";
-import { discoverVegaConsolePort } from "./vega-qmp";
+import { discoverVegaConsolePort } from "./vega-vvd";
 
 /**
  * Helpers for the Vega (Fire TV) on-device **automation toolkit** — the same
@@ -19,10 +19,11 @@ import { discoverVegaConsolePort } from "./vega-qmp";
 
 const TOOLKIT_ENABLE_FLAG = "/tmp/automation-toolkit.enable";
 
-// The VVD CLI targets the single connected device, and so does adb's emulator
-// console; we derive the emulator serial the same way the screenshot path does.
-// `serial` (the Vega udid) is accepted for interface symmetry / future
-// multi-device support but the console port is authoritative today.
+// adb's emulator console targets the single running VVD; we derive that serial
+// from its console port the same way the screenshot path does. There is no
+// `serial` argument because there is no per-device target to pass: v1 supports
+// exactly one VVD and `discoverVegaConsolePort` errors if more than one is
+// present, so the resolved `emulator-<port>` is unambiguous.
 export async function emulatorSerial(): Promise<{ serial: string; consolePort: number }> {
   const consolePort = await discoverVegaConsolePort();
   return { serial: `emulator-${consolePort}`, consolePort };
@@ -32,6 +33,10 @@ export async function emulatorSerial(): Promise<{ serial: string; consolePort: n
  * Idempotently create the toolkit enable flag on the device. The flag is read at
  * app launch, so callers wanting an already-running app introspectable must
  * relaunch it afterwards.
+ *
+ * `_serial` (the caller's Vega udid) is accepted for call-site symmetry with the
+ * iOS/Android lifecycle tools but not used: the target is the single running VVD
+ * resolved by `emulatorSerial` (see above), not a per-device serial.
  */
 export async function ensureAutomationToolkitEnabled(_serial: string): Promise<void> {
   const { serial } = await emulatorSerial();

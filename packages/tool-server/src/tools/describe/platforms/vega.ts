@@ -28,6 +28,11 @@ const PAGE_SOURCE_EMPTY_LENGTH = 50;
  * toolkit is unreachable (flag never set, or the app started before it attached)
  * the fetch fails / yields an empty result → we surface an empty tree with a
  * hint to relaunch rather than a hard error.
+ *
+ * `_serial` (the caller's Vega udid) is accepted for call-site symmetry with the
+ * iOS/Android describe handlers but not used: the toolkit fetch targets the
+ * single running VVD resolved under `fetchVegaPageSource` → `emulatorSerial`,
+ * which errors if more than one VVD is present.
  */
 export async function describeVega(_serial: string): Promise<DescribeTreeData> {
   let xml: string;
