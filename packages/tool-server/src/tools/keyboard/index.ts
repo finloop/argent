@@ -12,7 +12,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const zodSchema = z.object({
   udid: z
     .string()
-    .describe("Target device id from `list-devices` (iOS UDID, Android serial, or Chromium id)."),
+    .describe("Target device id from `list-devices` (iOS UDID, Android serial, Vega serial, or Chromium id)."),
   text: z
     .string()
     .optional()
@@ -23,9 +23,14 @@ const zodSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Named key to press: enter, escape, backspace, tab, space, arrow-up, arrow-down, arrow-left, arrow-right, f1–f12"
+      "Named key to press: enter, escape, backspace, tab, space, arrow-up, arrow-down, arrow-left, arrow-right, f1–f12 (f1–f11 on Vega)"
     ),
-  delayMs: z.number().optional().describe("Delay in ms between key presses (default 50)"),
+  delayMs: z
+    .number()
+    .optional()
+    .describe(
+      "Delay in ms between key presses (default 50). Ignored on Vega, where text/keys are injected in a single shot."
+    ),
 });
 
 type Params = z.infer<typeof zodSchema>;
@@ -104,7 +109,7 @@ export const keyboardTool: ToolDefinition<Params, Result> = {
 Use when you need to enter text or trigger a named key such as enter, escape, or arrow keys. On Vega, prefer the \`remote\` tool for D-pad navigation; use keyboard to type into a focused text field (e.g. a search or login box).
 Returns { typed: string, keys: number }. Fails if an unsupported key name is provided or the backend is not reachable for the given device.
 - text: types a string character by character (supports uppercase, digits, common punctuation)
-- key: presses a single named key (enter, escape, backspace, tab, arrow-up/down/left/right, f1–f12)
+- key: presses a single named key (enter, escape, backspace, tab, arrow-up/down/left/right, f1–f12; Vega supports f1–f11)
 Provide text, key, or both. Use instead of paste when paste is unreliable or unsupported by the focused field.`,
   zodSchema,
   capability,

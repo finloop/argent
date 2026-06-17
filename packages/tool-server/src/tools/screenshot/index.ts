@@ -71,6 +71,9 @@ Fails if the simulator-server / emulator backend / Chromium CDP is not reachable
   zodSchema,
   outputHint: "image",
   capability,
+  // Vega captures host-side via the Android emulator console (`adb emu`) and
+  // needs no simulator-server; resolving the (iOS/Android-only) blueprint for a
+  // Vega device would throw.
   services: (params): Record<string, ServiceRef> => {
     const device = resolveDevice(params.udid);
     if (device.platform === "chromium") {
@@ -94,8 +97,9 @@ Fails if the simulator-server / emulator backend / Chromium CDP is not reachable
       return { image };
     }
     if (device.platform === "vega") {
-      // Primary capture is the Android emulator console via `adb emu` (the VVD
-      // is emulator-derived); it falls back to QMP screendump internally.
+      // Capture is the Android emulator console via `adb emu` (the VVD is
+      // emulator-derived). QMP screendump can't read the GL-accelerated surface
+      // on macOS, so there is no QMP fallback.
       await ensureDep("adb");
       const path = await captureVegaScreenshotPng({ scale: params.scale });
       const image = await requireArtifacts(ctx).register(path, { mimeType: "image/png" });

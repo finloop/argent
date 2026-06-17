@@ -3,37 +3,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PNG } from "pngjs";
 import { runAdb } from "./adb";
-import { discoverVegaConsolePort, captureVegaScreenshotViaQmp } from "./vega-qmp";
+import { discoverVegaConsolePort } from "./vega-vvd";
 
 /**
  * Capture the VVD screen as a PNG.
  *
  * The Vega Virtual Device is an Android-emulator-derived QEMU, so the emulator
  * console can capture the *composited* display host-side (including the GL
- * surface) via `screenrecord screenshot` — exactly the frame QMP `screendump`
- * cannot read on macOS. We reach the console through `adb emu`, which manages
- * the emulator console auth token (`~/.emulator_console_auth_token`)
- * automatically; talking to the console socket directly would require that
- * token, which the VVD does not generate.
+ * surface) via `screenrecord screenshot`. We reach the console through
+ * `adb emu`, which manages the emulator console auth token
+ * (`~/.emulator_console_auth_token`) automatically; talking to the console
+ * socket directly would require that token, which the VVD does not generate.
  *
- * Primary: emulator console (`adb -s emulator-<port> emu screenrecord
- * screenshot`). Fallback: QMP `screendump` (works on a Linux `--no-gl-accel`
- * VVD where the framebuffer lives in the QEMU console).
+ * This is the only capture path: QMP `screendump` cannot read the GL-accelerated
+ * surface on macOS (it returns a blank frame) and the on-device
+ * `gwsi-tool-screenshooter` segfaults on the VVD, so neither is a usable
+ * fallback. `captureViaEmulatorConsole` throws an actionable error if `adb emu`
+ * itself fails.
  */
 export async function captureVegaScreenshotPng(opts: { scale?: number } = {}): Promise<string> {
-  try {
-    return await captureViaEmulatorConsole(opts);
-  } catch (emuErr) {
-    try {
-      return await captureVegaScreenshotViaQmp(opts);
-    } catch (qmpErr) {
-      const e1 = emuErr instanceof Error ? emuErr.message : String(emuErr);
-      const e2 = qmpErr instanceof Error ? qmpErr.message : String(qmpErr);
-      throw new Error(
-        `Vega screen capture failed. Emulator-console path: ${e1} | QMP fallback: ${e2}`
-      );
-    }
-  }
+  return captureViaEmulatorConsole(opts);
 }
 
 async function captureViaEmulatorConsole(opts: { scale?: number }): Promise<string> {

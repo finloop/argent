@@ -116,15 +116,6 @@ export async function runVega(
 }
 
 /**
- * POSIX single-quote escape for a value interpolated into a `vega device
- * run-cmd -c '<cmd>'` string, which is re-parsed by the on-device shell.
- * Mirrors `shellQuote` in adb.ts.
- */
-export function vegaShellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-/**
  * Run `vega device <subcommand…>` against a device.
  *
  * NOTE (v1, Virtual-Device-only): the CLI's `-d/--device <serial>` flag does
@@ -132,8 +123,9 @@ export function vegaShellQuote(value: string): string {
  * report — passing it yields an empty `unknown` device, while omitting it
  * correctly targets the single connected device (the CLI documents `-d` as
  * "Defaults to the connected device if there is only one"). So we rely on that
- * default and do not inject `-d`. `serial` is retained for identity/validation
- * and a future multi-device path (physical Fire TV, where `-d` does apply).
+ * default and do not inject `-d`; with more than one device connected the CLI
+ * itself errors rather than guessing. `serial` is validated non-empty to catch
+ * a caller that forgot to thread the udid, but is not otherwise used.
  */
 export async function vegaDevice(
   serial: string,
@@ -142,22 +134,4 @@ export async function vegaDevice(
 ): Promise<VegaRunResult> {
   if (!serial) throw new Error("vegaDevice requires a non-empty device serial");
   return runVega(["device", ...subcommand], options);
-}
-
-/**
- * Run a shell command on the device via `vega device run-cmd -c '<cmd>' -d
- * <serial>`. The command is single-quoted so an interpolated value cannot break
- * out of the on-device shell.
- */
-export async function vegaShell(
-  serial: string,
-  shellCommand: string,
-  options: { timeoutMs?: number } = {}
-): Promise<string> {
-  const { stdout } = await vegaDevice(
-    serial,
-    ["run-cmd", "-c", vegaShellQuote(shellCommand)],
-    options
-  );
-  return stdout;
 }

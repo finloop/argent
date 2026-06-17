@@ -8,6 +8,12 @@
 
 import { isFlagEnabled, type FlagsPathOptions } from "@argent/configuration-core";
 
+// Vega note: `remote` (D-pad) is deliberately absent — Vega navigation is a
+// tight text-tree loop (`describe` with includeImageInContext:false), so a
+// screenshot after every press is pure waste. This is an efficiency choice, not
+// a capture limitation: VVD screenshots do work (via the emulator console).
+// `keyboard` stays in the set because it is shared with iOS/Android and a
+// confirm-after-typing shot is occasionally useful and far rarer than D-pad steps.
 export const AUTO_SCREENSHOT_TOOLS = new Set([
   "gesture-tap",
   "gesture-swipe",
