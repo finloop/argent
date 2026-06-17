@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
-# End-to-end CI smoke test for argent's Vega (Fire TV) `remote` + `screenshot`
-# tools, built from THIS branch's source. Runs INSIDE the vega-virtual-device-
-# host container with the VVD already booted and ready — i.e. as the `script:`
-# of finloop/vega-virtual-device-action (see .github/workflows/vega-vvd-e2e.yml).
+# End-to-end CI smoke test for argent's Vega (Fire TV) `screenshot`, `remote`,
+# and `describe` tools, built from THIS branch's source. Runs INSIDE the
+# vega-virtual-device-host container with the VVD already booted and ready —
+# i.e. as the `script:` of finloop/vega-virtual-device-action (see
+# .github/workflows/vega-vvd-e2e.yml).
 #
 # It drives the tools through the tool-server's HTTP API (the same way
 # wayland-e2e.yml drives the Android path), so it exercises the real code:
 #   - screenshot → `adb emu screenrecord` (host-side, no native host binary)
 #   - remote     → `adb shell inputd-cli` (the path that USED to go through the
 #                  bundled vega-fast-cli host binary — now pure adb)
+#   - describe   → `adb forward` + JSON-RPC `getPageSource` to the on-device
+#                  automation toolkit (the element tree behind `[focused]`)
+#
+# `describe` is a soft check: the automation toolkit auto-enables at launch but
+# may not attach on the CI VVD, in which case `describe` returns an empty tree
+# + a hint (not an error). So a successful but empty tree WARNS rather than
+# fails; a populated tree is a hard pass; a transport error is a hard fail.
 #
 # There is intentionally no vega-fast-cli probe anymore: the host binary is gone,
 # so the arch/glibc question it raised is moot. `remote` working here proves the
@@ -36,6 +44,10 @@ trap copy_logs EXIT
 
 FAILURES=()
 fail() { echo "FAIL: $*"; FAILURES+=("$*"); }
+# Non-fatal: surfaced in the summary but doesn't flip the exit code. Used for
+# the documented `describe` empty-tree-in-CI case (toolkit may not attach).
+WARNINGS=()
+warn() { echo "WARN: $*"; WARNINGS+=("$*"); }
 group() { echo "::group::$*"; }
 endg() { echo "::endgroup::"; }
 
@@ -213,11 +225,47 @@ src="$(jget "$resp" image.hostPath)"; [ -n "$src" ] || src="$(jget "$resp" path)
 [ -n "$src" ] && [ -f "$src" ] && cp "$src" "${OUT_DIR}/kepler-after.png" 2>/dev/null && echo "saved ${OUT_DIR}/kepler-after.png"
 endg
 
+# ── TEST 3: describe (adb forward + JSON-RPC getPageSource) ─────────────────
+# Inspect the on-device element tree. Run last, so the app has been up longest
+# (best chance the automation toolkit has attached). A populated tree carries
+# element nodes (`id="…"`) and `[focused]`/`[selected]` markers; an empty tree
+# means the toolkit didn't attach — documented CI behaviour, so WARN not FAIL.
+group "TEST describe (adb forward + getPageSource)"
+DESC_TXT="${OUT_DIR}/describe-tree.txt"
+desc=""; src=""; nodes=0
+for attempt in 1 2 3 4 5; do
+  resp="$(post_tool describe "$(printf '{"udid":"%s"}' "$SERIAL")")" || resp=""
+  desc="$(jget "$resp" description)"
+  src="$(jget "$resp" source)"
+  [ -n "$desc" ] && printf '%s\n' "$desc" > "$DESC_TXT"
+  nodes="$(printf '%s' "$desc" | grep -c 'id=' || true)"
+  if [ -n "$desc" ] && [ "${nodes:-0}" -ge 1 ] 2>/dev/null; then break; fi
+  echo "attempt ${attempt}: describe empty / no nodes (nodes=${nodes:-0}); retrying..."
+  echo "  response: ${resp:0:200}"
+  sleep 5
+done
+# A vega-automation response is the contract: source=="vega-automation" OR the
+# tree header names it. Absent that, the Vega describe path didn't run.
+if [ -z "$desc" ] || { [ "$src" != "vega-automation" ] && ! printf '%s' "$desc" | grep -q "vega-automation"; }; then
+  fail "describe did not return a vega-automation tree (src='${src}', resp='${resp:0:200}')"
+elif [ "${nodes:-0}" -ge 1 ] 2>/dev/null; then
+  echo "OK: describe returned ${nodes} element node(s) from the vega-automation toolkit -> ${DESC_TXT}"
+  # The focus flag is emitted combined, e.g. `[clickable,focused]`, so match the bare word.
+  printf '%s' "$desc" | grep -q 'focused' && echo "    (tree includes a [focused] element)"
+else
+  warn "describe returned an empty tree (automation toolkit may not have attached on the CI VVD); call succeeded with source='${src}'"
+fi
+endg
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 echo "::group::Summary"
+if [ "${#WARNINGS[@]}" -ne 0 ]; then
+  echo "WARNINGS (non-fatal):"
+  for w in "${WARNINGS[@]}"; do echo "  - $w"; done
+fi
 if [ "${#FAILURES[@]}" -eq 0 ]; then
-  echo "PASS: screenshot + remote both worked against the kepler app on the VVD"
-  echo "      using adb only — vega-fast-cli is no longer needed."
+  echo "PASS: screenshot + remote + describe all worked against the kepler app on"
+  echo "      the VVD using adb only — vega-fast-cli is no longer needed."
   endg
   exit 0
 fi

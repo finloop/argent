@@ -1,17 +1,18 @@
-name: Vega VVD E2E (remote + screenshot)
+name: Vega VVD E2E (screenshot + remote + describe)
 
-# Regression guard for argent's Vega (Fire TV) `remote` + `screenshot` tools on a
-# free GitHub-hosted runner. Builds THIS branch's tool-server, boots the Vega
-# Virtual Device (VVD) via finloop/vega-virtual-device-action (a QEMU emulator in
-# a Docker container, KVM-accelerated, software-GL — no GPU, no self-hosted
-# runner), installs the kepler video sample app, and drives the two tools over
-# the tool-server HTTP API (scripts/ci/vega-vvd-test.sh).
+# Regression guard for argent's Vega (Fire TV) `screenshot`, `remote`, and
+# `describe` tools on a free GitHub-hosted runner. Builds THIS branch's
+# tool-server, boots the Vega Virtual Device (VVD) via
+# finloop/vega-virtual-device-action (a QEMU emulator in a Docker container,
+# KVM-accelerated, software-GL — no GPU, no self-hosted runner), installs the
+# kepler video sample app, and drives the tools over the tool-server HTTP API
+# (scripts/ci/vega-vvd-test.sh).
 #
-# Both tools are pure adb now: screenshot → `adb emu screenrecord`, remote →
-# `adb shell inputd-cli button_press` (the channel proven to work on the CI VVD;
-# the old vega-fast-cli host binary was a no-op there). So there is no
-# per-platform binary, no glibc/arch handling, nothing to bundle. The Vega
-# analogue of wayland-e2e.yml.
+# All adb-backed: screenshot → `adb emu screenrecord`, remote → `adb shell
+# inputd-cli button_press` (the channel proven to work on the CI VVD; the old
+# vega-fast-cli host binary was a no-op there), describe → `adb forward` +
+# JSON-RPC `getPageSource`. So there is no per-platform binary, no glibc/arch
+# handling, nothing to bundle. The Vega analogue of wayland-e2e.yml.
 #
 # Manual + on-change trigger only — a full boot is several minutes.
 
@@ -46,7 +47,7 @@ env:
 
 jobs:
   vega-vvd-e2e:
-    name: Boot VVD, drive remote + screenshot
+    name: Boot VVD, drive screenshot + remote + describe
     # Pin to 24.04 to match the host container (ubuntu:24.04), so the
     # runner-built node_modules native prebuilts (tree-sitter, esbuild) run
     # unchanged inside it — same glibc, no cross-version skew.
@@ -102,7 +103,7 @@ jobs:
           curl -fsSL -o fixtures/keplervideoapp_aarch64.vpkg "$KEPLER_FIXTURE_URL"
           ls -la fixtures
 
-      - name: Boot VVD; drive remote + screenshot
+      - name: Boot VVD; drive screenshot + remote + describe
         id: vvd
         uses: finloop/vega-virtual-device-action/vega-virtual-device-action@main
         with:
