@@ -3,7 +3,6 @@ import type { Registry, ToolDefinition } from "@argent/registry";
 import { SIMULATOR_SERVER_NAMESPACE } from "../../blueprints/simulator-server";
 import { NATIVE_DEVTOOLS_NAMESPACE } from "../../blueprints/native-devtools";
 import { ANDROID_DEVTOOLS_NAMESPACE } from "../../blueprints/android-devtools";
-import { runVegaFastCli } from "../../utils/vega-fast-cli";
 
 const PREFIXES = [
   `${SIMULATOR_SERVER_NAMESPACE}:`,
@@ -27,14 +26,9 @@ export function createStopAllSimulatorServersTool(
           stopped.push(urn);
         }
       }
-      // The Vega on-device server is managed by the vega-fast-cli host binary,
-      // outside the registry — best-effort shut it down (no-op if no VVD).
-      try {
-        await runVegaFastCli(["stop"], { timeoutMs: 10_000 });
-        stopped.push("vega-fast-cli:server");
-      } catch {
-        /* no VVD / binary absent — nothing to stop */
-      }
+      // Vega needs no teardown here: input is one-shot `adb shell inputd-cli`
+      // and describe removes its own `adb forward`, so there is no persistent
+      // on-device server or host process to stop.
       return { stopped };
     },
   };

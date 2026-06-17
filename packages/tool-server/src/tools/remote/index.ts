@@ -2,8 +2,7 @@ import { z } from "zod";
 import type { ToolCapability, ToolDefinition } from "@argent/registry";
 import { resolveDevice } from "../../utils/device-info";
 import { UnsupportedOperationError } from "../../utils/capability";
-import { REMOTE_BUTTONS, type RemoteButton } from "../../utils/vega-input";
-import { runVegaFastCli } from "../../utils/vega-fast-cli";
+import { REMOTE_BUTTONS, type RemoteButton, injectVegaButtons } from "../../utils/vega-input";
 
 const BUTTONS = [...REMOTE_BUTTONS] as [RemoteButton, ...RemoteButton[]];
 
@@ -12,24 +11,27 @@ const BUTTONS = [...REMOTE_BUTTONS] as [RemoteButton, ...RemoteButton[]];
 // multi-step move. Some MCP clients serialize array arguments as a JSON (or
 // comma-separated) string, so coerce those back to an array before validating.
 const buttonSchema = z
-  .preprocess((val) => {
-    if (typeof val !== "string") return val;
-    const trimmed = val.trim();
-    if (trimmed.startsWith("[")) {
-      try {
-        return JSON.parse(trimmed);
-      } catch {
-        return val;
+  .preprocess(
+    (val) => {
+      if (typeof val !== "string") return val;
+      const trimmed = val.trim();
+      if (trimmed.startsWith("[")) {
+        try {
+          return JSON.parse(trimmed);
+        } catch {
+          return val;
+        }
       }
-    }
-    if (trimmed.includes(",")) {
-      return trimmed
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }
-    return trimmed;
-  }, z.union([z.enum(BUTTONS), z.array(z.enum(BUTTONS)).min(1).max(64)]))
+      if (trimmed.includes(",")) {
+        return trimmed
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      return trimmed;
+    },
+    z.union([z.enum(BUTTONS), z.array(z.enum(BUTTONS)).min(1).max(64)])
+  )
   .describe(
     "A single TV-remote button, or a path of them run in ONE device round-trip. " +
       "Buttons: up/down/left/right (D-pad), select (OK), back, home, menu, playPause, " +
@@ -89,9 +91,8 @@ Returns { pressed, count }. Keys are injected on-device via inputd-cli so the fo
     const base = Array.isArray(params.button) ? params.button : [params.button];
     const repeat = Math.max(1, Math.floor(params.repeat ?? 1));
     const buttons = repeat === 1 ? base : Array.from({ length: repeat }, () => base).flat();
-    // Shell out to vega-fast-cli: `press <button>...` injects the whole path in
-    // one round-trip via the on-device server (deployed/started on first use).
-    await runVegaFastCli(["press", ...buttons]);
+    // Inject the whole path in one `adb shell inputd-cli` round-trip.
+    await injectVegaButtons(buttons);
     return { pressed: buttons, count: buttons.length };
   },
 };

@@ -11,10 +11,10 @@ import { discoverVegaConsolePort } from "./vega-qmp";
  * (`launch-app` / `restart-app`) call `ensureAutomationToolkitEnabled` before
  * launching, and the tree appears for argent-launched apps.
  *
- * The actual `getPageSource` fetch now goes through `vega-fast-cli inspect` (the
- * host CLI → on-device server, which proxies port 8383). This module only
- * derives the emulator serial and sets the enable flag; it no longer talks
- * JSON-RPC to the toolkit directly.
+ * The actual `getPageSource` JSON-RPC fetch lives in `vega-inspect.ts`, which
+ * `adb forward`s to port 8383 and talks to the toolkit directly. This module
+ * derives the emulator serial (shared by the input/inspect paths) and sets the
+ * enable flag.
  */
 
 const TOOLKIT_ENABLE_FLAG = "/tmp/automation-toolkit.enable";

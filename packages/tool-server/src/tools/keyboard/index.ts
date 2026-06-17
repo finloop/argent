@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ServiceRef, ToolCapability, ToolDefinition } from "@argent/registry";
 import { simulatorServerRef, type SimulatorServerApi } from "../../blueprints/simulator-server";
 import { resolveDevice } from "../../utils/device-info";
-import { runVegaFastCli } from "../../utils/vega-fast-cli";
+import { injectVegaNamedKey, injectVegaText } from "../../utils/vega-input";
 import { charToKeyPress, NAMED_KEYS, SHIFT_KEYCODE } from "./key-codes";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -47,21 +47,21 @@ Returns { typed: string, keys: number }. Fails if an unsupported key name is pro
 Provide text, key, or both. Use instead of paste when paste is unreliable or unsupported by the focused field.`,
   zodSchema,
   capability,
-  // Vega types host-side over QMP and needs no simulator-server.
+  // Vega injects via adb + on-device inputd-cli and needs no simulator-server.
   services: (params): Record<string, ServiceRef> => {
     const device = resolveDevice(params.udid);
     return device.platform === "vega" ? {} : { simulatorServer: simulatorServerRef(device) };
   },
   async execute(services, params) {
     if (resolveDevice(params.udid).platform === "vega") {
-      // Shell out to vega-fast-cli; it maps named keys + injects via the on-device server.
+      // Inject via the on-device inputd-cli (named key → KEY_, text → send_text).
       let keysPressed = 0;
       if (params.key) {
-        await runVegaFastCli(["key", params.key]);
+        await injectVegaNamedKey(params.key);
         keysPressed++;
       }
       if (params.text) {
-        await runVegaFastCli(["type", params.text]);
+        await injectVegaText(params.text);
         keysPressed += [...params.text].length;
       }
       return { typed: params.text ?? params.key ?? "", keys: keysPressed };
