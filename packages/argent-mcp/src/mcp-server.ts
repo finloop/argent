@@ -274,8 +274,6 @@ export async function startMcpServer(options: StartMcpServerOptions): Promise<vo
       }
 
       const udid = getUdidFromArgs(params.arguments);
-      // TODO: honor `includeImageInContext: false` here to suppress the
-      // auto-screenshot when a caller explicitly opted out of inline images.
       if (autoScreenshotOn && udid && shouldAutoScreenshot(params.name)) {
         const delayMs = getAutoScreenshotDelayMs(params.name);
         if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
