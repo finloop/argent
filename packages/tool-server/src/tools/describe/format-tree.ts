@@ -175,16 +175,13 @@ export function formatDescribeTree(root: DescribeNode, opts: FormatDescribeOptio
   // iOS providers (ax-service, native-devtools) emit a flat list under a
   // synthetic root, so the flat renderer is correct. Sources that produce
   // real parent/child trees (uiautomator / android-devtools on Android,
-  // cdp-dom on Chromium) use the nested renderer so descendants beyond
-  // depth 1 are visible.
+  // cdp-dom on Chromium, vega-automation on Vega) use the nested renderer so
+  // descendants beyond depth 1 are visible.
   const mode: "flat" | "nested" =
-<<<<<<< HEAD
-    opts.source === "uiautomator" || opts.source === "android-devtools" || opts.source === "cdp-dom"
-=======
     opts.source === "uiautomator" ||
     opts.source === "android-devtools" ||
+    opts.source === "cdp-dom" ||
     opts.source === "vega-automation"
->>>>>>> 56c10b1 (feat(tool-server): add Vega `describe` via the on-device automation toolkit)
       ? "nested"
       : "flat";
   const isVega = opts.source === "vega-automation";

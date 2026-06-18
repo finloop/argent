@@ -70,6 +70,8 @@ Returns { restarted, bundleId }. Fails if the app is not installed.`,
     RestartAppAndroidServices,
     Params,
     RestartAppResult,
+    // No chromium branch — falls back to the ChromiumServices default.
+    Record<string, unknown>,
     RestartAppVegaServices
   >({
     toolId: "restart-app",

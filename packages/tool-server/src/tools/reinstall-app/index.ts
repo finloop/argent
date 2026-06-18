@@ -47,6 +47,8 @@ Returns { reinstalled, bundleId }. Fails if the app path does not exist or the p
     ReinstallAppServices,
     Params,
     ReinstallAppResult,
+    // No chromium branch — falls back to the ChromiumServices default.
+    Record<string, unknown>,
     ReinstallAppServices
   >({
     toolId: "reinstall-app",
