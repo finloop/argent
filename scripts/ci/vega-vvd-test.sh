@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# End-to-end CI smoke test for argent's Vega (Fire TV) `remote` + `screenshot`
-# tools, built from THIS branch's source. Runs INSIDE the vega-virtual-device-
-# host container with the VVD already booted and ready — i.e. as the `script:`
-# of finloop/vega-virtual-device-action (see .github/workflows/vega-vvd-e2e.yml).
+# End-to-end CI smoke test for argent's Vega (Fire TV) tools, built from THIS
+# branch's source. Runs INSIDE the vega-virtual-device-host container with the
+# VVD already booted and ready — i.e. as the `script:` of
+# finloop/vega-virtual-device-action (see .github/workflows/vega-vvd-e2e.yml).
 #
 # It drives the tools through the tool-server's HTTP API (the same way
 # wayland-e2e.yml drives the Android path), so it exercises the real code:
-#   - screenshot → `adb emu screenrecord` (host-side, no native host binary)
-#   - remote     → `adb shell inputd-cli` (the path that USED to go through the
-#                  bundled vega-fast-cli host binary — now pure adb)
+#   - list-devices       → discovers the VVD and its serial
+#   - screenshot         → `adb emu screenrecord` (host-side, no native binary)
+#   - remote             → `adb shell inputd-cli` button injection
+#   - describe           → `adb forward` + on-device automation toolkit
+#   - keyboard           → `adb shell inputd-cli send_text`
+#   - list-installed-apps / read-device-logs / restart-app / reinstall-app
+#                        → the `vega`/`kepler` CLI
 #
 # There is intentionally no vega-fast-cli probe anymore: the host binary is gone,
 # so the arch/glibc question it raised is moot. `remote` working here proves the
@@ -218,11 +222,119 @@ src="$(jget "$resp" image.hostPath)"; [ -n "$src" ] || src="$(jget "$resp" path)
 [ -n "$src" ] && [ -f "$src" ] && cp "$src" "${OUT_DIR}/kepler-after.png" 2>/dev/null && echo "saved ${OUT_DIR}/kepler-after.png"
 endg
 
+# ── TEST 3: describe (adb forward + on-device automation toolkit) ────────────
+# The element tree is the core of the Vega nav loop. The toolkit attaches at app
+# launch; retry to ride out a late attach (an empty tree is the relaunch hint).
+group "TEST describe"
+desc_ok=""
+for attempt in 1 2 3 4 5; do
+  resp="$(post_tool describe "$(printf '{"udid":"%s"}' "$SERIAL")")" || resp=""
+  src="$(jget "$resp" source)"
+  desc="$(jget "$resp" description)"
+  if [ "$src" = "vega-automation" ] && [ -n "$desc" ]; then desc_ok=1; break; fi
+  echo "attempt ${attempt}: describe empty/not ready; retrying..."
+  echo "  response: ${resp:0:200}"
+  sleep 4
+done
+if [ -n "$desc_ok" ]; then
+  echo "OK: describe returned a vega-automation tree"
+else
+  fail "describe did not return a non-empty vega-automation tree"
+fi
+endg
+
+# ── TEST 4: keyboard (adb inputd-cli send_text) ─────────────────────────────
+# Smoke: the text path injects via inputd-cli without erroring and reports the
+# per-character count. No focused field is needed to exercise the channel.
+group "TEST keyboard"
+resp="$(post_tool keyboard "$(printf '{"udid":"%s","text":"argent"}' "$SERIAL")")" || resp=""
+keys="$(jget "$resp" keys)"
+echo "response: ${resp:0:200}"
+if [ -n "$keys" ] && [ "$keys" -ge 1 ] 2>/dev/null; then
+  echo "OK: keyboard injected ${keys} chars via inputd-cli"
+else
+  fail "keyboard did not report injected keys (keys='${keys}')"
+fi
+endg
+
+# ── TEST 5: list-installed-apps ─────────────────────────────────────────────
+group "TEST list-installed-apps"
+listed=""
+for attempt in 1 2 3; do
+  resp="$(post_tool list-installed-apps "$(printf '{"udid":"%s"}' "$SERIAL")")" || resp=""
+  if printf '%s' "$resp" | grep -q "$APP_PKG"; then listed=1; break; fi
+  echo "attempt ${attempt}: ${APP_PKG} not listed yet; retrying..."
+  sleep 3
+done
+if [ -n "$listed" ]; then
+  echo "OK: list-installed-apps includes ${APP_PKG}"
+else
+  echo "  response: ${resp:0:300}"
+  fail "list-installed-apps did not include ${APP_PKG}"
+fi
+endg
+
+# ── TEST 6: read-device-logs (vega start-log-stream) ────────────────────────
+# Capture a short window; success = a well-formed capture (numeric
+# capturedMs/lines) returned without taking the server down (the spawn-error
+# guard path in vega-logs.ts).
+group "TEST read-device-logs"
+resp="$(post_tool read-device-logs "$(printf '{"udid":"%s","durationMs":3000}' "$SERIAL")")" || resp=""
+cap="$(jget "$resp" capturedMs)"
+nlines="$(jget "$resp" lines)"
+echo "response: ${resp:0:200}"
+if [ -n "$cap" ] && [ "$cap" -ge 0 ] 2>/dev/null && [ -n "$nlines" ]; then
+  echo "OK: read-device-logs captured ${nlines} lines in ${cap}ms"
+else
+  fail "read-device-logs did not return a well-formed capture (capturedMs='${cap}', lines='${nlines}')"
+fi
+endg
+
+# ── TEST 7: restart-app (terminate + relaunch) ──────────────────────────────
+group "TEST restart-app"
+restarted=""
+for attempt in 1 2 3; do
+  resp="$(post_tool restart-app "$(printf '{"udid":"%s","bundleId":"%s"}' "$SERIAL" "$APP_ID")")" || resp=""
+  if printf '%s' "$resp" | grep -qiE '"restarted"[[:space:]]*:[[:space:]]*true'; then restarted=1; break; fi
+  echo "attempt ${attempt}: restart not confirmed; retrying..."
+  echo "  response: ${resp:0:200}"
+  sleep 4
+done
+if [ -n "$restarted" ]; then
+  echo "OK: restart-app relaunched ${APP_ID}"
+else
+  fail "restart-app did not report success for ${APP_ID}"
+fi
+sleep 5
+endg
+
+# ── TEST 8: reinstall-app (uninstall + install the .vpkg) ────────────────────
+# Runs last: it leaves the app freshly installed (and not running). Uses a longer
+# timeout for the install and retries the vega CLI's occasionally-racy handshake.
+group "TEST reinstall-app"
+reinstalled=""
+for attempt in 1 2 3; do
+  resp="$(curl -fsS -m 180 -X POST "${TOOLS_URL}/tools/reinstall-app" \
+    -H 'Content-Type: application/json' \
+    -d "$(printf '{"udid":"%s","bundleId":"%s","appPath":"%s"}' "$SERIAL" "$APP_ID" "$VPKG_ABS")" 2>/dev/null)" || resp=""
+  if printf '%s' "$resp" | grep -qiE '"reinstalled"[[:space:]]*:[[:space:]]*true'; then reinstalled=1; break; fi
+  echo "attempt ${attempt}: reinstall not confirmed; retrying..."
+  echo "  response: ${resp:0:300}"
+  sleep 5
+done
+if [ -n "$reinstalled" ]; then
+  echo "OK: reinstall-app reinstalled ${APP_ID} from the vpkg"
+else
+  fail "reinstall-app did not report success for ${APP_ID}"
+fi
+endg
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 echo "::group::Summary"
 if [ "${#FAILURES[@]}" -eq 0 ]; then
-  echo "PASS: screenshot + remote both worked against the kepler app on the VVD"
-  echo "      using adb only — vega-fast-cli is no longer needed."
+  echo "PASS: all Vega tool checks passed against the kepler app on the VVD —"
+  echo "      list-devices, screenshot, remote, describe, keyboard,"
+  echo "      list-installed-apps, read-device-logs, restart-app, reinstall-app."
   endg
   exit 0
 fi
