@@ -5,7 +5,7 @@ import type { LaunchAppParams, LaunchAppResult, LaunchAppVegaServices } from "..
 
 /**
  * Vega launches an installed interactive component by its app id — the
- * `…​.main` form from the package's manifest.toml (e.g.
+ * `….main` form from the package's manifest.toml (e.g.
  * `com.example.app.main`), which is what `bundleId` carries here. `activity`
  * is Android-only and ignored. There is no native-devtools injection on Vega,
  * so no service is needed.

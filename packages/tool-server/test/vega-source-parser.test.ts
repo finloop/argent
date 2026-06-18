@@ -87,7 +87,6 @@ describe("parseVegaPageSource", () => {
 
   it("normalizes the nav-bar Search button frame against 1920x1080", () => {
     // <child x=67 y=23 width=177 height=74 role=button>
-    const search = byLabel(tree, "Search")!; // the text node inside the button
     // its parent button has the 67/23 origin — find a button whose child is Search
     const searchButton = flatten(tree).find(
       (n) => n.role === "button" && n.children.some((c) => c.label === "Search")

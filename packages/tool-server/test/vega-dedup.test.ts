@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  vegaSerialMatchesAdbSerial,
-  filterVvdShadowsFromAndroid,
-} from "../src/utils/vega-devices";
+import { vegaSerialMatchesAdbSerial, filterVvdShadowsFromAndroid } from "../src/utils/vega-devices";
 
 describe("vegaSerialMatchesAdbSerial", () => {
   it("matches a Vega serial to its adb-reported hardware serial across prefixes", () => {

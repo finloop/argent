@@ -12,7 +12,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const zodSchema = z.object({
   udid: z
     .string()
-    .describe("Target device id from `list-devices` (iOS UDID, Android serial, Vega serial, or Chromium id)."),
+    .describe(
+      "Target device id from `list-devices` (iOS UDID, Android serial, Vega serial, or Chromium id)."
+    ),
   text: z
     .string()
     .optional()

@@ -41,7 +41,9 @@ export async function fetchVegaPageSource(timeoutMs = 15_000): Promise<string> {
     try {
       parsed = JSON.parse(respText) as { result?: unknown; error?: unknown };
     } catch (e) {
-      throw new Error(`bad toolkit JSON: ${e instanceof Error ? e.message : String(e)}`);
+      throw new Error(`bad toolkit JSON: ${e instanceof Error ? e.message : String(e)}`, {
+        cause: e,
+      });
     }
     if (parsed.error !== undefined) {
       throw new Error(`toolkit error: ${JSON.stringify(parsed.error)}`);
