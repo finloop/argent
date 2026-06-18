@@ -1,9 +1,14 @@
 import { z } from "zod";
 import type { ToolDefinition } from "@argent/registry";
-import { listAndroidDevices, listAvds } from "../../utils/adb";
+import { listAndroidDevices, listAvds, adbShell } from "../../utils/adb";
 import { listIosSimulators, type IosSimulator } from "../../utils/ios-devices";
 import { discoverChromiumDevices, type ChromiumDevice } from "../../utils/chromium-discovery";
-import { listVegaDevices, type VegaDevice } from "../../utils/vega-devices";
+import {
+  listVegaDevices,
+  filterVvdShadowsFromAndroid,
+  vegaSerialMatchesAdbSerial,
+  type VegaDevice,
+} from "../../utils/vega-devices";
 
 type IosDevice = IosSimulator & { platform: "ios" };
 
@@ -54,6 +59,44 @@ function readinessRank(d: IosDevice | AndroidDevice | ChromiumDevice | VegaDevic
   return 0; // Chromium entries are only listed when their CDP is responsive
 }
 
+// Read an adb emulator's reported hardware serial so it can be matched against
+// the `vega device list` serials. Returns null when adb is missing or the
+// device is still mid-boot (getprop empty) — the dedup then simply doesn't fire.
+async function readAdbDeviceSerial(serial: string): Promise<string | null> {
+  for (const prop of ["ro.serialno", "ro.boot.serialno"]) {
+    try {
+      const out = (await adbShell(serial, `getprop ${prop}`, { timeoutMs: 5_000 })).trim();
+      if (out) return out;
+    } catch {
+      // adb unavailable / device not ready — try the next prop, else give up.
+    }
+  }
+  return null;
+}
+
+// Resolve the adb serials of running VVDs so their duplicate Android rows can be
+// filtered. Only probes when at least one VVD is present, so non-Vega hosts pay
+// nothing.
+async function resolveVvdShadowAdbSerials<T extends { serial: string }>(
+  androidDevices: readonly T[],
+  vega: readonly VegaDevice[]
+): Promise<Set<string>> {
+  const vvds = vega.filter((d) => d.kind === "vvd");
+  const emulators = androidDevices.filter((d) => d.serial.startsWith("emulator-"));
+  if (vvds.length === 0 || emulators.length === 0) return new Set();
+
+  const shadows = new Set<string>();
+  await Promise.all(
+    emulators.map(async (d) => {
+      const reported = await readAdbDeviceSerial(d.serial);
+      if (reported && vvds.some((v) => vegaSerialMatchesAdbSerial(v.serial, reported))) {
+        shadows.add(d.serial);
+      }
+    })
+  );
+  return shadows;
+}
+
 const zodSchema = z.object({});
 
 export const listDevicesTool: ToolDefinition<Record<string, never>, ListDevicesResult> = {
@@ -89,11 +132,15 @@ Booted/ready devices are listed first. Platforms whose CLI is unavailable are si
       avdName: d.avdName,
       sdkLevel: d.sdkLevel,
     }));
-    androidTagged.sort(sortAndroid);
+    // A running VVD shows up on adb as `emulator-XXXX` too; drop those Android
+    // rows so it appears only once, as `platform:"vega"`.
+    const vvdShadowSerials = await resolveVvdShadowAdbSerials(androidTagged, vega);
+    const androidDeduped = filterVvdShadowsFromAndroid(androidTagged, vvdShadowSerials);
+    androidDeduped.sort(sortAndroid);
 
     const devices: Array<IosDevice | AndroidDevice | ChromiumDevice | VegaDevice> = [
       ...iosTagged,
-      ...androidTagged,
+      ...androidDeduped,
       ...chromium,
       ...vega,
     ];

@@ -5,13 +5,13 @@ import { registerVegaDevices } from "./device-info";
  * A Vega (Fire TV) device as surfaced to `list-devices`. The `serial` is the
  * stable host identifier reported by `vega device list` / `info.hostname`
  * (e.g. `amazon-4a27df03c9777152`) and is what an agent passes as `udid` to
- * Vega tools. `kind` is `"virtual"` for the QEMU Virtual Device (the iOS-
+ * Vega tools. `kind` is `"vvd"` for the QEMU Virtual Device (the iOS-
  * simulator / Android-emulator analogue) and `"device"` for physical Fire TV.
  */
 export interface VegaDevice {
   platform: "vega";
   serial: string;
-  kind: "virtual" | "device";
+  kind: "vvd" | "device";
   state: string;
   product: string | null;
   profile: string | null;
@@ -67,6 +67,48 @@ export function parseVegaDeviceList(stdout: string): Array<{ serial: string; typ
   return devices;
 }
 
+/**
+ * Strip the surface-specific prefix from a serial so a Vega serial
+ * (`amazon-4a27df03c9777152`) and an adb-reported device serial
+ * (`emulator-*` transports report the bare hardware id) compare equal.
+ */
+function normalizeSerial(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/^(amazon-|emulator-)/, "");
+}
+
+/**
+ * Whether an adb emulator's reported device serial (`ro.serialno` /
+ * `ro.boot.serialno`) belongs to the given Vega VVD. A running VVD reports the
+ * same hardware id under both the `vega device list` serial and adb, so a
+ * normalized match (allowing one to be a suffix of the other) identifies the
+ * duplicate. Unrelated serials never match, so genuine Android emulators are
+ * left alone.
+ */
+export function vegaSerialMatchesAdbSerial(vegaSerial: string, adbReportedSerial: string): boolean {
+  const v = normalizeSerial(vegaSerial);
+  const a = normalizeSerial(adbReportedSerial);
+  if (v.length < 6 || a.length < 6) return false;
+  return v === a || v.endsWith(a) || a.endsWith(v);
+}
+
+/**
+ * A running VVD auto-registers on adb as an `emulator-XXXX` transport, so a
+ * single VVD otherwise surfaces in `list-devices` twice — once as
+ * `platform:"android"` and once as `platform:"vega"`. Drop the Android rows
+ * whose adb serial was resolved to a VVD (`vvdAdbSerials`) so the VVD shows up
+ * only under `platform:"vega"`. Genuine standalone Android emulators are not in
+ * the set and pass through untouched.
+ */
+export function filterVvdShadowsFromAndroid<T extends { serial: string }>(
+  androidDevices: readonly T[],
+  vvdAdbSerials: ReadonlySet<string>
+): T[] {
+  return androidDevices.filter((d) => !vvdAdbSerials.has(d.serial));
+}
+
 async function readVegaInfo(): Promise<VegaInfo | null> {
   try {
     const { stdout } = await runVega(["device", "info"], { timeoutMs: 20_000 });
@@ -86,10 +128,10 @@ async function isVirtualDeviceRunning(): Promise<boolean> {
   }
 }
 
-function classifyKind(type: string, info: VegaInfo | null): "virtual" | "device" {
-  if (/virtual/i.test(type)) return "virtual";
-  if (info?.simulated === true) return "virtual";
-  if (info?.product && info.product.startsWith("vvrp")) return "virtual";
+function classifyKind(type: string, info: VegaInfo | null): "vvd" | "device" {
+  if (/virtual/i.test(type)) return "vvd";
+  if (info?.simulated === true) return "vvd";
+  if (info?.product && info.product.startsWith("vvrp")) return "vvd";
   return "device";
 }
 
@@ -124,7 +166,7 @@ export async function listVegaDevices(): Promise<VegaDevice[]> {
 
   const devices: VegaDevice[] = rows.map((row) => {
     const kind = classifyKind(row.type, info);
-    const state = kind === "virtual" ? (virtualRunning ? "running" : "stopped") : "device";
+    const state = kind === "vvd" ? (virtualRunning ? "running" : "stopped") : "device";
     return {
       platform: "vega",
       serial: row.serial,
@@ -133,7 +175,7 @@ export async function listVegaDevices(): Promise<VegaDevice[]> {
       product: info?.product ?? null,
       profile: info?.profile ?? null,
       buildDescription: info?.buildDescription ?? null,
-      simulated: info?.simulated ?? kind === "virtual",
+      simulated: info?.simulated ?? kind === "vvd",
     };
   });
 

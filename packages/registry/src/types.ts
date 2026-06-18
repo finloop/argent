@@ -88,7 +88,7 @@ export interface ToolContext extends InvokeToolOptions {
 
 export type Platform = "ios" | "android" | "chromium" | "vega";
 
-export type DeviceKind = "simulator" | "emulator" | "virtual" | "device" | "app" | "unknown";
+export type DeviceKind = "simulator" | "emulator" | "vvd" | "device" | "app" | "unknown";
 
 /**
  * Universal device handle. Platform-aware tools resolve a `udid` parameter into
@@ -123,12 +123,12 @@ export interface ToolCapability {
     app?: boolean;
   };
   /**
-   * Vega (Amazon Fire TV) support. `virtual` is the QEMU Virtual Device (VVD),
-   * the analogue of an iOS simulator / Android emulator; `device` is a physical
+   * Vega (Amazon Fire TV) support. `vvd` is the QEMU Virtual Device, the
+   * analogue of an iOS simulator / Android emulator; `device` is a physical
    * Fire TV reached over the `vega`/`kepler` CLI.
    */
   vega?: {
-    virtual?: boolean;
+    vvd?: boolean;
     device?: boolean;
   };
   /** Optional refiner. Returns true if this device is supported. */

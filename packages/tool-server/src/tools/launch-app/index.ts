@@ -53,19 +53,16 @@ const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
   chromium: { app: true },
-  // Virtual-Device-only in v1: physical Fire TV is unverified, and the Vega
-  // handler targets the single running VVD. Keep `vega` uniformly `virtual`
-  // across the tool suite until hardware is validated.
-  vega: { virtual: true },
+  vega: { vvd: true },
 };
 
 export const launchAppTool: ToolDefinition<Params, LaunchAppResult> = {
   id: "launch-app",
-  description: `Open an app by its bundle id (iOS), package name (Android), app id (Vega), or confirm the running renderer (Chromium).
+  description: `Open an app by its bundle id (iOS) or package name (Android), or confirm the running renderer (Chromium).
 Use when starting any app — prefer this over tapping home-screen / launcher icons. Also prepares the native-devtools injection on iOS before the app starts.
-On Vega (Fire TV), pass the interactive component app id from manifest.toml (e.g. com.example.app.main) as bundleId.
+Returns { launched, bundleId }. Fails if the app is not installed on the target device (iOS / Android).
 For Chromium, the app is already running behind a CDP port; this call simply refreshes the cached viewport and acknowledges the bundleId tag. To change the visible route, use \`open-url\`.
-Returns { launched, bundleId }. Fails if the app is not installed on the target device (iOS / Android / Vega).
+On Vega (Fire TV), pass the interactive component app id from manifest.toml (e.g. com.example.app.main) as bundleId.
 
 Common iOS bundle ids: com.apple.MobileSMS, com.apple.mobilesafari, com.apple.Preferences, com.apple.Maps, com.apple.camera, com.apple.Photos, com.apple.mobilemail, com.apple.mobilenotes, com.apple.MobileAddressBook
 Common Android packages: com.android.settings, com.android.chrome, com.google.android.apps.maps, com.google.android.gm, com.android.vending, com.google.android.dialer, com.google.android.apps.messaging`,

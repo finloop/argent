@@ -82,6 +82,12 @@ export function remoteButtonsToKeycodes(buttons: RemoteButton[]): string[] {
  * best-effort (`|| true`, output discarded) and settle between, mirroring the
  * proven navigation script.
  *
+ * TODO: `get_screen_size` is a *basic* inputd-cli command available even when
+ * the VVD's developer mode is off, whereas `button_press` / `send_text` require
+ * it. So the probe passes but every press silently no-ops on a dev-mode-off VVD.
+ * Gate on a dev-mode-only command (or check `vsm developer-mode`) so that case
+ * fails loudly too.
+ *
  * Callers must pass shell-safe subcommands: KEY_ codes come from the whitelisted
  * maps above; free text is wrapped with `shellQuote` before it reaches here.
  */

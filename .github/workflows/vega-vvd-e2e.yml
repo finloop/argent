@@ -12,8 +12,6 @@ name: Vega VVD E2E (remote + screenshot)
 # the old vega-fast-cli host binary was a no-op there). So there is no
 # per-platform binary, no glibc/arch handling, nothing to bundle. The Vega
 # analogue of wayland-e2e.yml.
-#
-# Manual + on-change trigger only — a full boot is several minutes.
 
 on:
   workflow_dispatch:
@@ -34,8 +32,6 @@ on:
       - "scripts/ci/vega-vvd-test.sh"
       - ".github/workflows/vega-vvd-e2e.yml"
 
-# A full VVD boot is several minutes; cancel a superseded in-progress run when a
-# PR gets a quick follow-up push instead of double-booting.
 concurrency:
   group: vega-vvd-e2e-${{ github.ref }}
   cancel-in-progress: true

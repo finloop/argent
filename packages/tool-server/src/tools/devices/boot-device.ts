@@ -27,6 +27,12 @@ import { bootElectronApp, type ElectronBootResult } from "./boot-electron";
 
 const execFileAsync = promisify(execFile);
 
+// TODO: add Vega VVD boot support. `boot-device` only handles iOS simulators and
+// Android AVDs today; a stopped Vega Virtual Device must be started manually with
+// `vega virtual-device start`. A future iteration could add a Vega branch
+// (analogous to the Android AVD path) that shells out to the `vega` CLI and polls
+// `vega virtual-device status` until `running: true`.
+
 // NOTE on mutual exclusion: `udid` and `avdName` are exactly-one — but zod's
 // `.refine()` returns a ZodEffects that our Registry ToolDefinition type does
 // not accept (it requires a ZodObject so the JSON Schema generator can walk

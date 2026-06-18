@@ -16,10 +16,7 @@ interface Result {
 }
 
 const capability: ToolCapability = {
-  // Virtual-Device-only in v1: physical Fire TV is unverified, and the Vega
-  // handler targets the single running VVD. Keep `vega` uniformly `virtual`
-  // across the tool suite until hardware is validated.
-  vega: { virtual: true },
+  vega: { vvd: true },
 };
 
 /**
@@ -40,6 +37,7 @@ Use to discover what's installed before launching, or to confirm an install/unin
   searchHint: "vega fire tv installed apps packages list inventory app id",
   zodSchema,
   capability,
+  requires: ["vega"],
   services: () => ({}),
   async execute(_services, params) {
     const device = resolveDevice(params.udid);

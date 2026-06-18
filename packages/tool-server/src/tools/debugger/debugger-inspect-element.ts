@@ -5,11 +5,6 @@ import type { JsRuntimeDebuggerApi } from "../../blueprints/js-runtime-debugger"
 import { makeInspectScript } from "../../utils/debugger/scripts/inspect-at-point";
 import { shouldSkip, isHardSkip } from "../../utils/debugger/skip-rules";
 import { RN_ONLY_TOOL_CAPABILITY } from "./debugger-service-ref";
-import {
-  isBindingTimeout,
-  isInternalInstanceHandleError,
-  INSPECT_ELEMENT_UNSUPPORTED_HINT,
-} from "../../utils/debugger/vega-cdp";
 
 export interface InspectItem {
   name: string;
@@ -193,24 +188,12 @@ Use when you need the source file and line for a component at a tap coordinate. 
     const requestId = crypto.randomUUID();
     const script = makeInspectScript(params.x, params.y, requestId);
 
-    let raw;
-    try {
-      raw = await api.cdp.evaluateWithBinding(script, requestId, {
-        timeout: 8000,
-      });
-    } catch (err) {
-      // Vega's Hermes can't run the inspector script — the binding times out.
-      if (isBindingTimeout(err)) return { error: INSPECT_ELEMENT_UNSUPPORTED_HINT };
-      throw err;
-    }
+    const raw = await api.cdp.evaluateWithBinding(script, requestId, {
+      timeout: 8000,
+    });
 
     if (raw.error) {
-      const text = raw.error as string;
-      // On Vega the inspector throws reading `_internalInstanceHandle` of an
-      // absent instance; turn that cryptic TypeError into actionable guidance.
-      return {
-        error: isInternalInstanceHandleError(text) ? INSPECT_ELEMENT_UNSUPPORTED_HINT : text,
-      };
+      return { error: raw.error as string };
     }
 
     const rawItems = (raw.items ?? []) as Array<{

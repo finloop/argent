@@ -189,18 +189,22 @@ export function formatDescribeTree(root: DescribeNode, opts: FormatDescribeOptio
   header.push(`Source: ${opts.source}`);
   header.push(`Mode: ${mode}`);
   header.push(
-    isVega
-      ? "Coordinates are normalized [0,1] fractions of the screen (x, y, width, height), " +
-          "not pixels. Vega is remote-driven, not touch — there is no tap. Use the frames as " +
-          "spatial hints to plan D-pad moves with the `remote` tool: compare the target's frame " +
-          "to the `[focused]` element's and count rows/columns to build the path (e.g. one row " +
-          'down and two columns right → ["down","right","right","select"]).'
-      : "Coordinates are normalized [0,1] fractions of the screen (x, y, width, height), " +
-          "not pixels — pass them straight to gesture-tap / gesture-swipe / gesture-pinch, " +
-          "which expect this same space. " +
-          "To tap an element, use its centre: tap_x = frame.x + frame.width / 2, " +
-          "tap_y = frame.y + frame.height / 2."
+    "Coordinates are normalized [0,1] fractions of the screen (x, y, width, height), not pixels."
   );
+  if (isVega) {
+    header.push(
+      "Vega is remote-driven, not touch — there is no tap. Use the frames as spatial hints to plan " +
+        "D-pad moves with the `remote` tool: compare the target's frame to the `[focused]` element's " +
+        'and count rows/columns to build the path (e.g. one row down and two columns right → ["down","right","right","select"]).'
+    );
+  } else {
+    header.push(
+      "Pass them straight to gesture-tap / gesture-swipe / gesture-pinch, which expect this same space."
+    );
+    header.push(
+      "To tap an element, use its centre: tap_x = frame.x + frame.width / 2, tap_y = frame.y + frame.height / 2."
+    );
+  }
   header.push("");
   header.push(`ROOT  ${root.role} ${fmtFrame(root.frame)}`);
   header.push("");

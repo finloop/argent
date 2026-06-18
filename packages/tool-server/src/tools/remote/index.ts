@@ -66,7 +66,7 @@ interface Result {
 }
 
 const capability: ToolCapability = {
-  vega: { virtual: true },
+  vega: { vvd: true },
 };
 
 export const remoteTool: ToolDefinition<Params, Result> = {
@@ -74,13 +74,14 @@ export const remoteTool: ToolDefinition<Params, Result> = {
   description: `Press a TV remote / D-pad button (or a whole path of them) on a Vega (Fire TV) device.
 Vega apps are navigated with a directional remote, not touch — use this instead of gesture-tap/swipe (which do not apply on Vega). Move focus with up/down/left/right, confirm with select, go back with back, and use home/menu/playPause/rewind/fastForward/next/previous/volumeUp/volumeDown/mute for the corresponding remote keys.
 Single press: { button: "down" }. Repeat the same button: { button: "down", repeat: 3 }.
-Multi-step navigation: pass a path as { button: ["up","right","right","select"] } — it runs in ONE adb round-trip and one tool call, far cheaper than separate presses (which each pay their own adb round-trip and agent turn; the ~0.3s on-device settle between presses is the same either way).
-Returns { pressed, count }. Keys are injected on-device via inputd-cli so the focused app's focus engine moves (real remote/navigation events).`,
+Multi-step navigation: pass a path as { button: ["up","right","right","select"] } — it runs in one tool call, far cheaper than separate presses.
+Returns { pressed, count }.`,
   alwaysLoad: true,
   searchHint:
     "vega fire tv remote dpad d-pad navigate focus up down left right select ok back home menu play pause rewind fast forward sequence path",
   zodSchema,
   capability,
+  requires: ["vega"],
   services: () => ({}),
   async execute(_services, params) {
     // Guard the platform explicitly: the HTTP layer gates on `capability`, but

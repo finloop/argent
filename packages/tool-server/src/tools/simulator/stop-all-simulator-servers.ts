@@ -17,7 +17,7 @@ export function createStopAllSimulatorServersTool(
 ): ToolDefinition<void, { stopped: string[] }> {
   return {
     id: "stop-all-simulator-servers",
-    description: `Stop all running simulator-server processes (iOS + Android), native devtools services, Chromium CDP sessions, and Vega on-device agents, freeing their resources. Call this when your session ends or the user says they are done. Returns { stopped } — an array of URNs/identifiers that were shut down. Fails silently if no servers are running.`,
+    description: `Stop all running simulator-server processes (iOS + Android), native devtools services, and Chromium CDP sessions, freeing their resources. Call this when your session ends or the user says they are done. Returns { stopped } — an array of URNs that were shut down. Fails silently if no servers are running.`,
     services: () => ({}),
     async execute() {
       const snapshot = registry.getSnapshot();
@@ -28,9 +28,6 @@ export function createStopAllSimulatorServersTool(
           stopped.push(urn);
         }
       }
-      // Vega needs no teardown here: input is one-shot `adb shell inputd-cli`
-      // and describe removes its own `adb forward`, so there is no persistent
-      // on-device server or host process to stop.
       return { stopped };
     },
   };

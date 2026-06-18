@@ -186,18 +186,6 @@ export const simulatorServerBlueprint: ServiceBlueprint<SimulatorServerApi, Devi
       );
     }
 
-    // Vega (Fire TV) does not use the prebuilt simulator-server binary — its
-    // input (`adb shell inputd-cli`), screen capture (`adb emu screenrecord`),
-    // and describe (`adb forward` + on-device JSON-RPC) all go through adb
-    // directly. Resolving this blueprint for a Vega device is a wiring bug, so
-    // fail loudly rather than spawn the binary with an unsupported platform
-    // string.
-    if (device.platform === "vega") {
-      throw new Error(
-        `${SIMULATOR_SERVER_NAMESPACE} does not support Vega devices; Vega is driven directly over adb.`
-      );
-    }
-
     if (device.platform === "ios") {
       await ensureAutomationEnabled(device.id).catch(() => {});
     } else if (device.platform === "android") {

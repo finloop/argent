@@ -72,8 +72,6 @@ export type DescribeSource =
   | "uiautomator"
   | "android-devtools"
   | "cdp-dom"
-  // Vega (Fire TV) on-device automation toolkit, reached over adb-forwarded
-  // JSON-RPC `getPageSource`. Emits a real parent/child tree → nested rendering.
   | "vega-automation";
 
 // Internal shape produced by the per-platform adapters. The `tree` is consumed

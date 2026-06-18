@@ -42,6 +42,7 @@ vi.mock("../src/utils/chromium-discovery", async () => {
 });
 
 import { listDevicesTool } from "../src/tools/devices/list-devices";
+import { __resetVegaBinaryCacheForTests } from "../src/utils/vega-cli";
 
 function simctlJson(): string {
   return JSON.stringify({
@@ -188,5 +189,85 @@ describe("list-devices", () => {
     expect(result.devices.filter((d) => d.platform === "android")).toHaveLength(0);
     expect(result.devices.filter((d) => d.platform === "ios").length).toBeGreaterThan(0);
     expect(result.avds).toEqual([]);
+  });
+
+  // A running VVD auto-registers on adb as `emulator-XXXX`, so without dedup it
+  // surfaces twice — once `platform:"android"`, once `platform:"vega"`.
+  function mockVegaVvd(cmd: string, args: string[]): { stdout: string; stderr: string } | null {
+    if (cmd === "/bin/sh" && args[0] === "-c" && args[1]?.includes("command -v vega")) {
+      return { stdout: "/usr/bin/vega\n", stderr: "" };
+    }
+    if (cmd === "/bin/sh" && args[0] === "-c") return { stdout: "", stderr: "" }; // kepler probe
+    if (cmd.endsWith("vega") && args[0] === "device" && args[1] === "list") {
+      return {
+        stdout:
+          "Found the following device:\nVirtualDevice : tv - aarch64 - OS - amazon-4a27df03c9777152\n",
+        stderr: "",
+      };
+    }
+    if (cmd.endsWith("vega") && args[0] === "virtual-device" && args[1] === "status") {
+      return { stdout: JSON.stringify({ running: true }), stderr: "" };
+    }
+    if (cmd.endsWith("vega") && args[0] === "device" && args[1] === "info") {
+      return { stdout: JSON.stringify({ product: "vvrp_aarch64", simulated: true }), stderr: "" };
+    }
+    return null;
+  }
+
+  it("de-duplicates a running VVD that also auto-registers on adb (shows only as vega)", async () => {
+    __resetVegaBinaryCacheForTests();
+    execFileMock.mockImplementation((cmd: string, args: string[]) => {
+      const vega = mockVegaVvd(cmd, args);
+      if (vega) return vega;
+      if (cmd === "xcrun") return { stdout: simctlJson(), stderr: "" };
+      if (cmd === "adb" && args[0] === "devices") {
+        return { stdout: "List of devices attached\nemulator-5554\tdevice\n", stderr: "" };
+      }
+      if (cmd === "adb" && args[0] === "-s" && args[2] === "shell") {
+        const shellCmd = args[3] ?? "";
+        if (shellCmd.includes("ro.product.model")) return { stdout: "AFTKA\n", stderr: "" };
+        if (shellCmd.includes("ro.build.version.sdk")) return { stdout: "33\n", stderr: "" };
+        // The emulator's reported hardware serial matches the VVD's serial.
+        if (shellCmd.includes("serialno")) return { stdout: "4a27df03c9777152\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const result = await listDevicesTool.execute!({}, {});
+    const android = result.devices.filter((d) => d.platform === "android");
+    const vega = result.devices.filter((d) => d.platform === "vega");
+
+    expect(vega).toHaveLength(1);
+    expect((vega[0] as { serial: string }).serial).toBe("amazon-4a27df03c9777152");
+    // The emulator-5554 shadow row is dropped — the VVD appears exactly once.
+    expect(android).toHaveLength(0);
+  });
+
+  it("keeps a genuine standalone Android emulator even while a VVD is running", async () => {
+    __resetVegaBinaryCacheForTests();
+    execFileMock.mockImplementation((cmd: string, args: string[]) => {
+      const vega = mockVegaVvd(cmd, args);
+      if (vega) return vega;
+      if (cmd === "xcrun") return { stdout: simctlJson(), stderr: "" };
+      if (cmd === "adb" && args[0] === "devices") {
+        return { stdout: "List of devices attached\nemulator-5554\tdevice\n", stderr: "" };
+      }
+      if (cmd === "adb" && args[0] === "-s" && args[2] === "shell") {
+        const shellCmd = args[3] ?? "";
+        if (shellCmd.includes("ro.product.model")) return { stdout: "Pixel_7\n", stderr: "" };
+        if (shellCmd.includes("ro.build.version.sdk")) return { stdout: "34\n", stderr: "" };
+        // This emulator's serial does NOT match the running VVD, so it must stay.
+        if (shellCmd.includes("serialno")) return { stdout: "GENUINE_EMULATOR_99\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const result = await listDevicesTool.execute!({}, {});
+    const android = result.devices.filter((d) => d.platform === "android");
+    const vega = result.devices.filter((d) => d.platform === "vega");
+
+    expect(vega).toHaveLength(1);
+    expect(android).toHaveLength(1);
+    expect((android[0] as { serial: string }).serial).toBe("emulator-5554");
   });
 });

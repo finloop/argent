@@ -23,7 +23,7 @@ const zodSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Named key to press: enter, escape, backspace, tab, space, arrow-up, arrow-down, arrow-left, arrow-right, f1–f12 (f1–f11 on Vega)"
+      "Named key to press: enter, escape, backspace, tab, space, arrow-up, arrow-down, arrow-left, arrow-right, f1–f12"
     ),
   delayMs: z
     .number()
@@ -44,7 +44,7 @@ const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
   chromium: { app: true },
-  vega: { virtual: true },
+  vega: { vvd: true },
 };
 
 async function runChromium(api: ChromiumCdpApi, params: Params): Promise<Result> {
@@ -109,17 +109,17 @@ export const keyboardTool: ToolDefinition<Params, Result> = {
 Use when you need to enter text or trigger a named key such as enter, escape, or arrow keys. On Vega, prefer the \`remote\` tool for D-pad navigation; use keyboard to type into a focused text field (e.g. a search or login box).
 Returns { typed: string, keys: number }. Fails if an unsupported key name is provided or the backend is not reachable for the given device.
 - text: types a string character by character (supports uppercase, digits, common punctuation)
-- key: presses a single named key (enter, escape, backspace, tab, arrow-up/down/left/right, f1–f12; Vega supports f1–f11)
+- key: presses a single named key (enter, escape, backspace, tab, arrow-up/down/left/right, f1–f12)
 Provide text, key, or both. Use instead of paste when paste is unreliable or unsupported by the focused field.`,
   zodSchema,
   capability,
-  // Vega injects via adb + on-device inputd-cli and needs no simulator-server.
   services: (params): Record<string, ServiceRef> => {
     const device = resolveDevice(params.udid);
     if (device.platform === "chromium") {
       return { chromium: chromiumCdpRef(device) };
     }
     if (device.platform === "vega") {
+      // Vega injects via adb + on-device inputd-cli and needs no simulator-server.
       return {};
     }
     return { simulatorServer: simulatorServerRef(device) };

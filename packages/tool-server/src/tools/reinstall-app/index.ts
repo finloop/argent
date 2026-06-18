@@ -28,10 +28,7 @@ type Params = z.infer<typeof zodSchema>;
 const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
-  // Virtual-Device-only in v1: physical Fire TV is unverified, and the Vega
-  // handler targets the single running VVD. Keep `vega` uniformly `virtual`
-  // across the tool suite until hardware is validated.
-  vega: { virtual: true },
+  vega: { vvd: true },
 };
 
 export const reinstallAppTool: ToolDefinition<Params, ReinstallAppResult> = {

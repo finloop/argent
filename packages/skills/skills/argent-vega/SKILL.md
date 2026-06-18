@@ -1,15 +1,15 @@
 ---
 name: argent-vega
-description: Drive an Amazon Vega (Fire TV) app with argent — list/launch/restart/reinstall apps, inspect the on-screen element tree (describe), navigate with the TV remote / D-pad, type text, screenshot, read device logs, connect the JS debugger. Use when the target is a Vega / Fire TV device (React Native for Vega, vega/kepler CLI), not an iOS simulator or Android emulator.
+description: Drive an Amazon Vega (Fire TV) app with argent — list/launch/restart/reinstall apps, inspect the on-screen element tree (describe), navigate with the TV remote / D-pad, type text, screenshot, read device logs. Use when the target is a Vega / Fire TV device (React Native for Vega, vega/kepler CLI), not an iOS simulator or Android emulator.
 ---
 
 Vega (Fire TV) apps = React Native 0.72 + Hermes on a QEMU Virtual Device (VVD), **driven by a D-pad remote (not touch)**. argent platform `"vega"`: input / screenshot / describe go over `adb`, app lifecycle over the `vega`/`kepler` CLI. Use `remote`, never `gesture-*` (gestures error on Vega).
 
-Prereqs: Vega SDK on PATH (`source ~/vega/env`). Start the VVD yourself — `vega virtual-device start` (argent won't boot it). v1 assumes one running VVD.
+Prereqs: Vega SDK on PATH (`source ~/vega/env`). Start the VVD yourself — `vega virtual-device start` (argent won't boot it). v1 assumes one running VVD. Input needs developer mode on the VVD (`vsm developer-mode enable` inside `kepler device shell`); without it `remote`/`keyboard` silently no-op.
 
 ## Target
 
-`list-devices` → Vega entries tagged `platform:"vega"` (`serial:"amazon-…"`, `kind:"virtual"`). Pass that `serial` as `udid` to every Vega tool.
+`list-devices` → Vega entries tagged `platform:"vega"` (`serial:"amazon-…"`, `kind:"vvd"`). Pass that `serial` as `udid` to every Vega tool.
 
 ## App lifecycle
 
@@ -29,10 +29,10 @@ Prereqs: Vega SDK on PATH (`source ~/vega/env`). Start the VVD yourself — `veg
 ## Input
 
 - `remote {udid, button}` — `button` is a single key **or a whole path**. Keys: `up`/`down`/`left`/`right`, `select`, `back`, `home`, `menu`, `playPause`, `rewind`, `fastForward`. Single: `{button:"down"}`. Repeat one key: `{button:"down", repeat:3}`.
-- `remote {udid, button:[...]}` — run a **whole path in one call**, e.g. `{button:["up","right","right","select"]}`. **Strongly prefer this for any multi-step move.** A path is injected in one `adb shell inputd-cli` round-trip (presses settle ~0.3s apart on-device); N separate calls instead pay N adb round-trips plus N agent turns for the same on-device settle. Batching is pure savings — the longer the path, the bigger the win.
+- `remote {udid, button:[...]}` — run a **whole path in one call**, e.g. `{button:["up","right","right","select"]}`. Strongly prefer this for any multi-step move.
 - `keyboard {udid, text}` or `{udid, key:"enter"}` — type into a focused field (focus it with the D-pad first).
 
-**Typing text — never spell it out on the on-screen keyboard.** When a text field is focused and a soft keyboard appears, do **not** D-pad to each letter and `select` it (dozens of round-trips per word). Instead: move focus onto the text field with the D-pad, then send the whole string in **one** `keyboard {udid, text:"…"}` call — it injects the entire string host-side via `inputd-cli send_text` in a single shot (one round-trip regardless of length). Only fall back to picking keys on the on-screen keyboard if a `describe` after the send confirms the field didn't receive the text (some native fields reject injected text). Press submit/enter with `keyboard {udid, key:"enter"}` or the field's on-screen confirm button.
+**Typing text:** focus the input field with the D-pad, and when the soft keyboard appears send the whole string in one `keyboard {udid, text:"…"}` call, then submit with `keyboard {udid, key:"enter"}`.
 
 ## Fast navigation (the loop)
 
@@ -43,7 +43,7 @@ Per screen, do exactly two tool calls:
 
 Then `describe` again to confirm. This is text-only and ~2 round-trips/screen instead of one-press-per-round-trip with a screenshot each time. Off-by-one is normal on first traversal of an unfamiliar layout — re-`describe`, correct with a short follow-up `sequence`, and you'll have the layout's geometry for the rest of the run.
 
-**Model:** the decision each step is mechanical (read text tree → count steps → emit a path), so run device navigation on a fast model (e.g. Sonnet/Haiku). Reserve larger models for reasoning about the app, not for grinding D-pad steps.
+**Model:** device navigation is mechanical (read tree → count steps → emit a path) — run it on a fast model (e.g. Sonnet/Haiku).
 
 ## Screenshot
 
@@ -51,27 +51,20 @@ Then `describe` again to confirm. This is text-only and ~2 round-trips/screen in
 
 ## Logs
 
-`read-device-logs {udid, durationMs?, filter?, maxLines?}` — captures the log stream (default 5s) + a text artifact. `filter` = case-insensitive substring (e.g. `"ERROR"`, an app id, `"KB key"` to confirm input reached the app).
+`read-device-logs {udid, durationMs?, filter?, maxLines?}` — captures the log stream (default 5s) + a text artifact. `filter` = case-insensitive substring (e.g. `"ERROR"`, an app id).
 
-## Fast Refresh & JS debugger (manual Metro setup)
+## Fast Refresh (manual Metro setup)
 
-Both need a **Debug** build + Metro running. argent only _connects_ to Metro — it does **not** start Metro or port-forward (any platform); do these in your shell:
+Needs a **Debug** build + Metro running. argent only _connects_ to Metro — it does **not** start Metro or port-forward (any platform); do these in your shell. On Vega the app connects to Metro only on port **8081** — this port is fixed and cannot be changed.
 
-1. `npm run build:debug` → `vega device install-app -p build/aarch64-debug/vega_aarch64.vpkg`
+1. Build a **Debug** `.vpkg` and install it: `vega device install-app -p <path/to/debug.vpkg>`
 2. `npm start` (Metro on :8081; use `npm start`, not `npx react-native start`)
 3. `vega device start-port-forwarding --port 8081 --forward false` (reverse)
 4. `vega device launch-app -a <appId>`
 
 Metro must be up before launch; confirm `http://localhost:8081/json/list` lists a `Hermes React Native` target. Then `.tsx` edits hot-reload live (a Release build ignores Metro).
 
-Debugger (verified RN 0.72):
-
-- `debugger-connect {port:8081, device_id:"0"}`
-- `debugger-evaluate {port:8081, device_id:"0", expression:"…"}` — **use `globalThis`, not bare `global`** (Vega's Hermes rejects `global`).
-
-Unsupported: `debugger-component-tree`, `debugger-inspect-element`, logbox-disable — their injected scripts use constructs (bare `global`, some iterators) Vega's Hermes rejects. Use `debugger-evaluate` to read state directly.
-
 ## Out of scope
 
 - Profiling / crashes → use the `amazon-devices-buildertools-mcp` server (`analyze_perfetto_traces`, `get_app_hot_functions`, `symbolicate_acr`), not argent's native profiler.
-- `gesture-*` (use `remote`), `open-url` (not wired) → return "unsupported on vega".
+- `gesture-*` (use `remote`), `open-url` (not wired), `debugger-*` (JS debugger not supported on Vega) → return "unsupported on vega".
