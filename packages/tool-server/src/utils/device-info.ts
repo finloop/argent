@@ -2,19 +2,29 @@ import type { DeviceInfo, DeviceKind, Platform } from "@argent/registry";
 
 /**
  * iOS simulator UDID format: 8-4-4-4-12 hex with dashes. Chromium devices use the
- * `chromium-cdp-<port>` prefix so they can be told apart from both iOS UUIDs and
- * Android adb serials by shape alone. Anything else is treated as an Android
- * serial. Classification is shape-based because `xcrun simctl list` and
- * `adb devices` are slow enough that listing on every hot tool call would
- * dominate its latency.
+ * `chromium-cdp-<port>` prefix and Vega devices the `amazon-` prefix, so both are
+ * told apart from iOS UUIDs and Android adb serials by shape alone. Anything else
+ * is treated as an Android serial. Classification is shape-based because
+ * `xcrun simctl list` and `adb devices` are slow enough that listing on every hot
+ * tool call would dominate its latency.
  */
 const IOS_UDID_SHAPE =
   /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 
 export const CHROMIUM_ID_PREFIX = "chromium-cdp-";
 
+/**
+ * Vega serial prefix. `vega device list` reports VVD / Fire-TV serials as
+ * `amazon-<id>` (e.g. `amazon-4a27df03c9777152`); no Android adb serial
+ * (`emulator-<port>`, a hardware serial, or `ip:port`) starts with it, so the
+ * prefix classifies Vega by shape — the same approach as Chromium above. v1
+ * supports the Virtual Device only, so a Vega serial resolves to kind `vvd`.
+ */
+export const VEGA_SERIAL_PREFIX = "amazon-";
+
 /** Returns the platform a `udid` belongs to based on its shape. */
 export function classifyDevice(udid: string): Platform {
+  if (udid.startsWith(VEGA_SERIAL_PREFIX)) return "vega";
   if (udid.startsWith(CHROMIUM_ID_PREFIX)) return "chromium";
   return IOS_UDID_SHAPE.test(udid) ? "ios" : "android";
 }
@@ -38,21 +48,23 @@ export function isAndroidEmulatorSerial(serial: string): boolean {
 }
 
 /**
- * Build a `DeviceInfo` from a raw udid. Fills the platform and a default kind
- * ('simulator' for iOS, 'emulator'/'device' for Android by serial shape, 'app'
- * for Chromium) — platform impls can enrich with name/state/sdkLevel via
- * simctl/adb if needed.
+ * Build a `DeviceInfo` from a raw udid, by shape. Kind defaults per platform:
+ * 'simulator' for iOS, 'vvd' for Vega (v1 supports the Virtual Device only),
+ * 'emulator'/'device' for Android by serial shape, 'app' for Chromium — platform
+ * impls can enrich with name/state/sdkLevel via simctl/adb if needed.
  */
 export function resolveDevice(udid: string): DeviceInfo {
   const platform = classifyDevice(udid);
   const kind: DeviceKind =
     platform === "ios"
       ? "simulator"
-      : platform === "android"
-        ? isAndroidEmulatorSerial(udid)
-          ? "emulator"
-          : "device"
-        : "app";
+      : platform === "vega"
+        ? "vvd"
+        : platform === "android"
+          ? isAndroidEmulatorSerial(udid)
+            ? "emulator"
+            : "device"
+          : "app";
   return { id: udid, platform, kind };
 }
 

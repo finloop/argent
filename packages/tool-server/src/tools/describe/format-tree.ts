@@ -39,6 +39,13 @@ const CONTENT_ROLES = new Set([
   "AXHeading",
   "AXTabBar",
   "AXAdjustable",
+  // Vega UIToolkit roles (lowercase, distinct from iOS AX* / Android's
+  // capitalised names). The toolkit emits these as leaves (e.g. a poster
+  // `image` or a label `text`); listing them here keeps undecorated leaves
+  // from being dropped by the nested renderer's content gate.
+  "button",
+  "text",
+  "image",
 ]);
 
 function clampFinite(n: number): number {
@@ -74,6 +81,8 @@ function formatFlags(n: DescribeNode): string {
   if (n.longClickable) flags.push("long-clickable");
   if (n.scrollable) flags.push("scrollable");
   if (n.checkable) flags.push(n.checked ? "checked" : "checkable");
+  if (n.focused) flags.push("focused");
+  if (n.selected) flags.push("selected");
   if (n.disabled) flags.push("disabled");
   if (n.password) flags.push("password");
   if (typeof n.scrollHidden === "number" && n.scrollHidden > 0) {
@@ -166,22 +175,36 @@ export function formatDescribeTree(root: DescribeNode, opts: FormatDescribeOptio
   // iOS providers (ax-service, native-devtools) emit a flat list under a
   // synthetic root, so the flat renderer is correct. Sources that produce
   // real parent/child trees (uiautomator / android-devtools on Android,
-  // cdp-dom on Chromium) use the nested renderer so descendants beyond
-  // depth 1 are visible.
+  // cdp-dom on Chromium, vega-automation on Vega) use the nested renderer so
+  // descendants beyond depth 1 are visible.
   const mode: "flat" | "nested" =
-    opts.source === "uiautomator" || opts.source === "android-devtools" || opts.source === "cdp-dom"
+    opts.source === "uiautomator" ||
+    opts.source === "android-devtools" ||
+    opts.source === "cdp-dom" ||
+    opts.source === "vega-automation"
       ? "nested"
       : "flat";
+  const isVega = opts.source === "vega-automation";
   const header: string[] = [];
   header.push(`Source: ${opts.source}`);
   header.push(`Mode: ${mode}`);
   header.push(
-    "Coordinates are normalized [0,1] fractions of the screen (x, y, width, height), " +
-      "not pixels — pass them straight to gesture-tap / gesture-swipe / gesture-pinch, " +
-      "which expect this same space. " +
-      "To tap an element, use its centre: tap_x = frame.x + frame.width / 2, " +
-      "tap_y = frame.y + frame.height / 2."
+    "Coordinates are normalized [0,1] fractions of the screen (x, y, width, height), not pixels."
   );
+  if (isVega) {
+    header.push(
+      "Vega is remote-driven, not touch — there is no tap. Use the frames as spatial hints to plan " +
+        "D-pad moves with the `tv-remote` tool: compare the target's frame to the `[focused]` element's " +
+        'and count rows/columns to build the path (e.g. one row down and two columns right → ["down","right","right","select"]).'
+    );
+  } else {
+    header.push(
+      "Pass them straight to gesture-tap / gesture-swipe / gesture-pinch, which expect this same space."
+    );
+    header.push(
+      "To tap an element, use its centre: tap_x = frame.x + frame.width / 2, tap_y = frame.y + frame.height / 2."
+    );
+  }
   header.push("");
   header.push(`ROOT  ${root.role} ${fmtFrame(root.frame)}`);
   header.push("");

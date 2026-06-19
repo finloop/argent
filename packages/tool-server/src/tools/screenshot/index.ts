@@ -4,6 +4,8 @@ import { simulatorServerRef, type SimulatorServerApi } from "../../blueprints/si
 import { chromiumCdpRef, type ChromiumCdpApi } from "../../blueprints/chromium-cdp";
 import { resolveDevice } from "../../utils/device-info";
 import { httpScreenshot } from "../../utils/simulator-client";
+import { captureVegaScreenshotPng } from "../../utils/vega-screen";
+import { ensureDep } from "../../utils/check-deps";
 import { requireArtifacts, type ArtifactHandle } from "../../artifacts";
 
 const zodSchema = z.object({
@@ -56,22 +58,29 @@ const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
   chromium: { app: true },
+  vega: { vvd: true },
 };
 
 export const screenshotTool: ToolDefinition<Params, Result> = {
   id: "screenshot",
-  description: `Capture a screenshot of the device screen (iOS simulator, Android emulator, or Chromium app). Returns { url, path }; the MCP adapter renders it as a visible image unless the caller passed includeImageInContext: false.
+  description: `Capture a screenshot of the device screen (iOS simulator, Android emulator, Chromium app, or Vega Virtual Device). Returns { url, path }; the MCP adapter renders it as a visible image unless the caller passed includeImageInContext: false.
 Use when you need a baseline image before an interaction or to inspect the current screen state after a delay.
 Fails if the simulator-server / emulator backend / Chromium CDP is not reachable for the given device.`,
   alwaysLoad: true,
-  searchHint: "device simulator emulator chromium screen image capture baseline",
+  searchHint: "device simulator emulator chromium vega fire tv screen image capture baseline",
   zodSchema,
   outputHint: "image",
   capability,
+  // Vega captures host-side via the Android emulator console (`adb emu`) and
+  // needs no simulator-server; resolving the (iOS/Android-only) blueprint for a
+  // Vega device would throw.
   services: (params): Record<string, ServiceRef> => {
     const device = resolveDevice(params.udid);
     if (device.platform === "chromium") {
       return { chromium: chromiumCdpRef(device) };
+    }
+    if (device.platform === "vega") {
+      return {};
     }
     return { simulatorServer: simulatorServerRef(device) };
   },
@@ -84,6 +93,12 @@ Fails if the simulator-server / emulator backend / Chromium CDP is not reachable
         scale: params.scale,
         downscaler: params.downscaler,
       });
+      const image = await requireArtifacts(ctx).register(path, { mimeType: "image/png" });
+      return { image };
+    }
+    if (device.platform === "vega") {
+      await ensureDep("adb");
+      const path = await captureVegaScreenshotPng({ scale: params.scale });
       const image = await requireArtifacts(ctx).register(path, { mimeType: "image/png" });
       return { image };
     }

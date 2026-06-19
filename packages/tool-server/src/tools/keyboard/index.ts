@@ -3,6 +3,7 @@ import type { ServiceRef, ToolCapability, ToolDefinition } from "@argent/registr
 import { simulatorServerRef, type SimulatorServerApi } from "../../blueprints/simulator-server";
 import { chromiumCdpRef, type ChromiumCdpApi } from "../../blueprints/chromium-cdp";
 import { resolveDevice } from "../../utils/device-info";
+import { injectVegaNamedKey, injectVegaText } from "../../utils/vega-input";
 import { charToKeyPress, NAMED_KEYS, SHIFT_KEYCODE } from "./key-codes";
 import { CHROMIUM_NAMED_KEYS, charToChromiumKey } from "./chromium-keys";
 
@@ -11,7 +12,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const zodSchema = z.object({
   udid: z
     .string()
-    .describe("Target device id from `list-devices` (iOS UDID, Android serial, or Chromium id)."),
+    .describe(
+      "Target device id from `list-devices` (iOS UDID, Android serial, Vega serial, or Chromium id)."
+    ),
   text: z
     .string()
     .optional()
@@ -24,7 +27,12 @@ const zodSchema = z.object({
     .describe(
       "Named key to press: enter, escape, backspace, tab, space, arrow-up, arrow-down, arrow-left, arrow-right, f1–f12"
     ),
-  delayMs: z.number().optional().describe("Delay in ms between key presses (default 50)"),
+  delayMs: z
+    .number()
+    .optional()
+    .describe(
+      "Delay in ms between key presses (default 50). Ignored on Vega, where text/keys are injected in a single shot."
+    ),
 });
 
 type Params = z.infer<typeof zodSchema>;
@@ -38,6 +46,7 @@ const capability: ToolCapability = {
   apple: { simulator: true, device: true },
   android: { emulator: true, device: true, unknown: true },
   chromium: { app: true },
+  vega: { vvd: true },
 };
 
 async function runChromium(api: ChromiumCdpApi, params: Params): Promise<Result> {
@@ -98,9 +107,9 @@ async function runChromium(api: ChromiumCdpApi, params: Params): Promise<Result>
 
 export const keyboardTool: ToolDefinition<Params, Result> = {
   id: "keyboard",
-  description: `Type text or press special keys on the device (iOS simulator, Android emulator, or Chromium app) using keyboard events.
-Use when you need to enter text or trigger a named key such as enter, escape, or arrow keys.
-Returns { typed: string, keys: number }. Fails if an unsupported key name is provided or the simulator-server / emulator backend / Chromium CDP is not reachable for the given device.
+  description: `Type text or press special keys on the device (iOS simulator, Android emulator, Chromium app, or Vega Virtual Device) using keyboard events.
+Use when you need to enter text or trigger a named key such as enter, escape, or arrow keys. On Vega, prefer the \`tv-remote\` tool for D-pad navigation; use keyboard to type into a focused text field (e.g. a search or login box).
+Returns { typed: string, keys: number }. Fails if an unsupported key name is provided or the backend is not reachable for the given device.
 - text: types a string character by character (supports uppercase, digits, common punctuation)
 - key: presses a single named key (enter, escape, backspace, tab, arrow-up/down/left/right, f1–f12)
 Provide text, key, or both. Use instead of paste when paste is unreliable or unsupported by the focused field.`,
@@ -111,6 +120,10 @@ Provide text, key, or both. Use instead of paste when paste is unreliable or uns
     if (device.platform === "chromium") {
       return { chromium: chromiumCdpRef(device) };
     }
+    if (device.platform === "vega") {
+      // Vega injects via adb + on-device inputd-cli and needs no simulator-server.
+      return {};
+    }
     return { simulatorServer: simulatorServerRef(device) };
   },
   async execute(services, params) {
@@ -118,6 +131,19 @@ Provide text, key, or both. Use instead of paste when paste is unreliable or uns
     if (device.platform === "chromium") {
       const chromium = services.chromium as ChromiumCdpApi;
       return runChromium(chromium, params);
+    }
+    if (device.platform === "vega") {
+      // Inject via the on-device inputd-cli (named key → KEY_, text → send_text).
+      let keysPressed = 0;
+      if (params.key) {
+        await injectVegaNamedKey(params.key);
+        keysPressed++;
+      }
+      if (params.text) {
+        await injectVegaText(params.text);
+        keysPressed += [...params.text].length;
+      }
+      return { typed: params.text ?? params.key ?? "", keys: keysPressed };
     }
     const api = services.simulatorServer as SimulatorServerApi;
     const delay = params.delayMs ?? 50;
