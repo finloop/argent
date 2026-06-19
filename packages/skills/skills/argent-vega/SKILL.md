@@ -52,7 +52,6 @@ Metro must be up before launch; confirm `http://localhost:8081/json/list` lists 
 - amazon-devices-buildertools-mcp search_documentation tool
 - Search the community.amazondeveloper.com
 
-
 ## Platform specific notes
 
 - On Vega the app connects to Metro only on port 8081 — this port is fixed and cannot be changed
