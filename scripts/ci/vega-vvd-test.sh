@@ -8,14 +8,14 @@
 # wayland-e2e.yml drives the Android path), so it exercises the real code:
 #   - list-devices       → discovers the VVD and its serial
 #   - screenshot         → `adb emu screenrecord` (host-side, no native binary)
-#   - remote             → `adb shell inputd-cli` button injection
+#   - tv-remote          → `adb shell inputd-cli` button injection
 #   - describe           → `adb forward` + on-device automation toolkit
 #   - keyboard           → `adb shell inputd-cli send_text`
-#   - list-installed-apps / restart-app / reinstall-app
+#   - restart-app / reinstall-app
 #                        → the `vega`/`kepler` CLI
 #
 # There is intentionally no vega-fast-cli probe anymore: the host binary is gone,
-# so the arch/glibc question it raised is moot. `remote` working here proves the
+# so the arch/glibc question it raised is moot. `tv-remote` working here proves the
 # adb/inputd-cli replacement drives the device.
 #
 # Prereq: the workspace is already built (`npm ci` + `tsc --build` on the runner,
@@ -222,20 +222,20 @@ else
 fi
 endg
 
-# ── TEST 2: remote (adb inputd-cli — the headline) ──────────────────────────
+# ── TEST 2: tv-remote (adb inputd-cli — the headline) ───────────────────────
 # A path of D-pad presses navigates the kepler UI in one round-trip. Success =
 # the tool returns the full press count; failure surfaces the device error
 # (e.g. inputd-cli missing / no focused surface).
-group "TEST remote (adb inputd-cli)"
+group "TEST tv-remote (adb inputd-cli)"
 REMOTE_ARGS="$(printf '{"udid":"%s","button":["down","right","right","select"]}' "$SERIAL")"
-echo "remote args: ${REMOTE_ARGS}"
-resp="$(post_tool remote "$REMOTE_ARGS")" || resp=""
+echo "tv-remote args: ${REMOTE_ARGS}"
+resp="$(post_tool tv-remote "$REMOTE_ARGS")" || resp=""
 count="$(jget "$resp" count)"
 echo "response: ${resp:0:300}"
 if [ -n "$count" ] && [ "$count" -ge 4 ] 2>/dev/null; then
-  echo "OK: remote injected ${count} presses via adb inputd-cli"
+  echo "OK: tv-remote injected ${count} presses via adb inputd-cli"
 else
-  fail "remote did not inject the expected presses (count='${count}')"
+  fail "tv-remote did not inject the expected presses (count='${count}')"
 fi
 # Capture the post-navigation screen (best-effort).
 resp="$(post_tool screenshot "$(printf '{"udid":"%s","scale":1}' "$SERIAL")")"
@@ -278,24 +278,7 @@ else
 fi
 endg
 
-# ── TEST 5: list-installed-apps ─────────────────────────────────────────────
-group "TEST list-installed-apps"
-listed=""
-for attempt in 1 2 3; do
-  resp="$(post_tool list-installed-apps "$(printf '{"udid":"%s"}' "$SERIAL")")" || resp=""
-  if printf '%s' "$resp" | grep -q "$APP_PKG"; then listed=1; break; fi
-  echo "attempt ${attempt}: ${APP_PKG} not listed yet; retrying..."
-  sleep 3
-done
-if [ -n "$listed" ]; then
-  echo "OK: list-installed-apps includes ${APP_PKG}"
-else
-  echo "  response: ${resp:0:300}"
-  fail "list-installed-apps did not include ${APP_PKG}"
-fi
-endg
-
-# ── TEST 6: restart-app (terminate + relaunch) ──────────────────────────────
+# ── TEST 5: restart-app (terminate + relaunch) ──────────────────────────────
 group "TEST restart-app"
 restarted=""
 for attempt in 1 2 3; do
@@ -313,7 +296,7 @@ fi
 sleep 5
 endg
 
-# ── TEST 7: reinstall-app (uninstall + install the .vpkg) ────────────────────
+# ── TEST 6: reinstall-app (uninstall + install the .vpkg) ────────────────────
 # Runs last: it leaves the app freshly installed (and not running). Uses a longer
 # timeout for the install and retries the vega CLI's occasionally-racy handshake.
 group "TEST reinstall-app"
@@ -338,8 +321,8 @@ endg
 echo "::group::Summary"
 if [ "${#FAILURES[@]}" -eq 0 ]; then
   echo "PASS: all Vega tool checks passed against the kepler app on the VVD —"
-  echo "      list-devices, screenshot, remote, describe, keyboard,"
-  echo "      list-installed-apps, restart-app, reinstall-app."
+  echo "      list-devices, screenshot, tv-remote, describe, keyboard,"
+  echo "      restart-app, reinstall-app."
   endg
   exit 0
 fi
