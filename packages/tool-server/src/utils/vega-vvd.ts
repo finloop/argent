@@ -78,10 +78,20 @@ export async function discoverQmpSocket(): Promise<string> {
     }
   }
   const candidates = [...byName.keys()].sort();
-  const names = await filterLiveSockets(candidates);
+  // A freshly-booted VVD registers on adb *asynchronously* — the boot path only
+  // waits on `vega device list` (`waitForVvdRunning`), not on adb, so the socket
+  // file can exist a beat before its `emulator-<port>` shows up in `adb devices`.
+  // Retry the adb correlation a few times so the first describe/screenshot/
+  // tv-remote right after boot doesn't spuriously throw the "stale socket" path.
+  let names = await filterLiveSockets(candidates);
+  for (let attempt = 0; attempt < 4 && names.length === 0 && candidates.length > 0; attempt++) {
+    await new Promise((r) => setTimeout(r, 500));
+    names = await filterLiveSockets(candidates);
+  }
   if (names.length === 0) {
     const stale = candidates.length
-      ? ` (${candidates.length} stale socket(s) found but no matching adb device — a prior VVD likely crashed)`
+      ? ` (${candidates.length} socket(s) found but no matching adb device after retrying — ` +
+        "the VVD's adb transport may still be coming up, or a prior VVD crashed and left a stale socket)"
       : "";
     throw new Error(
       "No running Vega Virtual Device QMP socket found (looked for /tmp/qmp-socket-*.sock)" +

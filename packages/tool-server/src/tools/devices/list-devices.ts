@@ -60,14 +60,24 @@ function readinessRank(d: IosDevice | AndroidDevice | ChromiumDevice | VegaDevic
 // Read an adb emulator's reported hardware serial.
 //   real Android emulator -> a bare serial token (e.g. "EMULATOR36X6X11X0")
 //   Vega VVD shadow        -> guest OS isn't Android, so `getprop` is absent. adb.
+//
+// A single failed read is ambiguous: a Vega VVD shadow fails *every* read (no
+// getprop), but a genuine emulator can fail one *transiently* (mid-boot, busy
+// adb, a timed-out shell). Treating that transient null as "shadow" would filter
+// a real running emulator out of list-devices entirely. So retry a few times
+// (like resolveRunningVvdSerial) and only conclude `null` when every attempt
+// fails — a real VVD fast-fails each attempt, so the loop stays cheap.
 async function readAdbDeviceSerial(serial: string): Promise<string | null> {
-  for (const prop of ["ro.serialno", "ro.boot.serialno"]) {
-    try {
-      const out = (await adbShell(serial, `getprop ${prop}`, { timeoutMs: 5_000 })).trim();
-      if (out && !/\s/.test(out)) return out;
-    } catch {
-      // adb missing / device not ready / remote command failed  - exits with 127
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const prop of ["ro.serialno", "ro.boot.serialno"]) {
+      try {
+        const out = (await adbShell(serial, `getprop ${prop}`, { timeoutMs: 5_000 })).trim();
+        if (out && !/\s/.test(out)) return out;
+      } catch {
+        // adb missing / device not ready / remote command failed  - exits with 127
+      }
     }
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 300));
   }
   return null;
 }

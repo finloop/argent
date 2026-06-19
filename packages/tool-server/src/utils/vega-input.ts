@@ -100,7 +100,15 @@ async function injectViaInputd(subcommands: string[]): Promise<void> {
     .join(`; sleep ${SETTLE_BETWEEN_PRESSES_S}; `);
   // Only get_screen_size writes to the captured stdout; the presses are silenced.
   const script = `inputd-cli get_screen_size; ${presses}`;
-  const out = await adbShell(serial, script, { timeoutMs: 20_000 });
+  // The script's on-device duration scales with the path: every press settles
+  // `SETTLE_BETWEEN_PRESSES_S` apart, and `tv-remote` admits up to 64 buttons ×
+  // repeat 50 (~3200 presses). A fixed timeout would SIGKILL the adb child
+  // mid-sequence on long paths, failing a schema-valid call with a partial
+  // inject. Budget the cumulative sleep + per-press exec overhead, plus a base
+  // for the probe and adb round-trip.
+  const PER_PRESS_BUDGET_MS = SETTLE_BETWEEN_PRESSES_S * 1_000 + 200;
+  const timeoutMs = 15_000 + subcommands.length * PER_PRESS_BUDGET_MS;
+  const out = await adbShell(serial, script, { timeoutMs });
   if (!/\d+\s*x\s*\d+/.test(out)) {
     throw new Error(
       `Vega input channel is not usable: 'inputd-cli get_screen_size' returned no ` +

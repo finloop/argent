@@ -81,7 +81,10 @@ Returns { pressed, count }.`,
     "vega fire tv remote dpad d-pad navigate focus up down left right select ok back home menu play pause rewind fast forward sequence path",
   zodSchema,
   capability,
-  requires: ["vega"],
+  // All work goes over `adb` (`inputd-cli` via `adbShell`); the `vega`/`kepler`
+  // CLI is never invoked here. Preflighting on `adb` (not `vega`) means a host
+  // with a running VVD but an unsourced `~/vega/env` can still drive the D-pad.
+  requires: ["adb"],
   services: () => ({}),
   async execute(_services, params) {
     // Guard the platform explicitly: the HTTP layer gates on `capability`, but

@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { PNG } from "pngjs";
 import { runAdb } from "./adb";
 import { discoverVegaConsolePort } from "./vega-vvd";
+import { getScreenshotScale } from "./simulator-client";
+import { resizeDecodedPng } from "../tools/screenshot-diff/resize";
 
 /**
  * Capture the VVD screen as a PNG.
@@ -49,24 +51,25 @@ async function captureViaEmulatorConsole(opts: { scale?: number }): Promise<stri
   }
 }
 
-/** Nearest-neighbour downscale of a decoded RGBA PNG by `scale` (default 0.3). */
-function scalePng(src: PNG, scale = Number(process.env.ARGENT_SCREENSHOT_SCALE) || 0.3): PNG {
-  const s = Math.min(Math.max(scale, 0.01), 1.0);
+/**
+ * Downscale a decoded RGBA PNG by `scale`. Defaults and resampling are shared
+ * with the other platforms rather than re-derived here: the default + range
+ * handling comes from `getScreenshotScale()` (the iOS/Android env parser, which
+ * rejects out-of-(0,1] values and falls back to 0.3), and the resample is the
+ * lanczos3 `resizeDecodedPng()` used by screenshot-diff — so Vega screenshots
+ * honour `ARGENT_SCREENSHOT_SCALE` identically and at the same quality.
+ */
+function scalePng(src: PNG, scale?: number): PNG {
+  const s = scale ?? getScreenshotScale();
   if (s >= 1) return src;
   const outW = Math.max(1, Math.round(src.width * s));
   const outH = Math.max(1, Math.round(src.height * s));
-  const out = new PNG({ width: outW, height: outH });
-  for (let y = 0; y < outH; y++) {
-    const srcY = Math.min(src.height - 1, Math.floor(y / s));
-    for (let x = 0; x < outW; x++) {
-      const srcX = Math.min(src.width - 1, Math.floor(x / s));
-      const si = (srcY * src.width + srcX) * 4;
-      const di = (y * outW + x) * 4;
-      out.data[di] = src.data[si]!;
-      out.data[di + 1] = src.data[si + 1]!;
-      out.data[di + 2] = src.data[si + 2]!;
-      out.data[di + 3] = src.data[si + 3]!;
-    }
-  }
+  const resized = resizeDecodedPng(
+    { width: src.width, height: src.height, data: src.data },
+    outW,
+    outH
+  );
+  const out = new PNG({ width: resized.width, height: resized.height });
+  resized.data.copy(out.data);
   return out;
 }

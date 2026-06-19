@@ -3,6 +3,7 @@ import type { ServiceRef, ToolCapability, ToolDefinition } from "@argent/registr
 import { simulatorServerRef, type SimulatorServerApi } from "../../blueprints/simulator-server";
 import { chromiumCdpRef, type ChromiumCdpApi } from "../../blueprints/chromium-cdp";
 import { resolveDevice } from "../../utils/device-info";
+import { ensureDep } from "../../utils/check-deps";
 import { injectVegaNamedKey, injectVegaText } from "../../utils/vega-input";
 import { charToKeyPress, NAMED_KEYS, SHIFT_KEYCODE } from "./key-codes";
 import { CHROMIUM_NAMED_KEYS, charToChromiumKey } from "./chromium-keys";
@@ -121,7 +122,11 @@ Provide text, key, or both. Use instead of paste when paste is unreliable or uns
       return { chromium: chromiumCdpRef(device) };
     }
     if (device.platform === "vega") {
-      // Vega injects via adb + on-device inputd-cli and needs no simulator-server.
+      // Vega has no simulator-server: the bundled simulator-server binary only
+      // backs iOS/Android, so it can't carry Vega input. Vega instead injects
+      // over `adb` (on-device `inputd-cli`) — a separate transport, not a second
+      // copy of the simulator-server. No blueprint service to resolve here; the
+      // `adb` dependency is enforced imperatively in the vega execute branch.
       return {};
     }
     return { simulatorServer: simulatorServerRef(device) };
@@ -134,6 +139,9 @@ Provide text, key, or both. Use instead of paste when paste is unreliable or uns
     }
     if (device.platform === "vega") {
       // Inject via the on-device inputd-cli (named key → KEY_, text → send_text).
+      // The runtime dependency of this branch is `adb` (not `vega`); fail with a
+      // clean 424 install hint rather than a raw spawn ENOENT when adb is absent.
+      await ensureDep("adb");
       let keysPressed = 0;
       if (params.key) {
         await injectVegaNamedKey(params.key);

@@ -1065,7 +1065,7 @@ async function bootVegaImpl(params: {
     const available = images.map((i) => i.name).join(", ") || "(none found)";
     throw new Error(
       `Vega VVD image "${params.vvdImage}" not found. Available: ${available}. ` +
-        "Image names come from `list-devices` → `vvds[].name`."
+        "Image names come from `list-devices` → the `vvdImage` field on a Vega device."
     );
   }
 
@@ -1099,12 +1099,17 @@ function bootVega(params: {
   bootTimeoutMs: number;
   force?: boolean;
 }): Promise<VegaBootResult> {
-  const existing = inFlightVegaBoots.get(params.vvdImage);
+  // Key the coalescing on `force` too: a `force:true` boot does a stop+start
+  // restart, so it must NOT join an in-flight non-force boot (which would skip
+  // the restart and hand back the stale device). Two same-mode boots of the same
+  // image still share one promise.
+  const key = `${params.vvdImage} ${params.force ? "force" : "normal"}`;
+  const existing = inFlightVegaBoots.get(key);
   if (existing) return existing;
   const promise = bootVegaImpl(params).finally(() => {
-    inFlightVegaBoots.delete(params.vvdImage);
+    inFlightVegaBoots.delete(key);
   });
-  inFlightVegaBoots.set(params.vvdImage, promise);
+  inFlightVegaBoots.set(key, promise);
   return promise;
 }
 

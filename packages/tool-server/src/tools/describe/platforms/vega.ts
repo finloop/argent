@@ -4,7 +4,11 @@ import { fetchVegaPageSource } from "../../../utils/vega-inspect";
 import { MultipleVegaDevicesError } from "../../../utils/vega-vvd";
 import { parseVegaPageSource } from "./vega/source-parser";
 
-export const vegaRequires: ToolDependency[] = ["vega"];
+// `describeVega` runs entirely over `adb` (`fetchVegaPageSource` → `adb forward`
+// + inspect) and never touches the `vega`/`kepler` CLI, so preflight on `adb`
+// (like the Android branch) — not `vega`. A running VVD with an unsourced
+// `~/vega/env` can still be described over adb.
+export const vegaRequires: ToolDependency[] = ["adb"];
 
 const EMPTY_TREE: DescribeNode = {
   role: "Screen",

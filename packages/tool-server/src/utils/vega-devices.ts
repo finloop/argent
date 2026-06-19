@@ -120,12 +120,27 @@ export async function listVegaDevices(): Promise<VegaDevice[]> {
 
   const info = rows.length === 1 ? await readVegaInfo() : null;
 
+  // The stopped list is the installed SDK images; the running VVD is one of them
+  // and must be excluded so it doesn't appear twice. The link is the image
+  // *directory* name, but `info.profile` isn't guaranteed to equal it (and
+  // `device info` may omit `profile` entirely). Resolve the running VVD's image
+  // name against the installed set, falling back to the sole installed image
+  // when there's exactly one — enough to dedup the common single-VVD case
+  // instead of re-emitting the running device as a phantom `stopped` row.
+  const installedImages = await listVvdImages();
+  const installedNames = new Set(installedImages.map((i) => i.name));
+  const resolveVvdImageName = (profile: string | null): string | null => {
+    if (profile && installedNames.has(profile)) return profile;
+    if (installedImages.length === 1) return installedImages[0]!.name;
+    return profile;
+  };
+
   const connected: VegaDevice[] = rows.map((row): VegaDevice => {
     const kind = classifyKind(row.type, info);
     return {
       platform: "vega",
       serial: row.serial,
-      vvdImage: kind === "vvd" ? (info?.profile ?? null) : null,
+      vvdImage: kind === "vvd" ? resolveVvdImageName(info?.profile ?? null) : null,
       kind,
       state: kind === "vvd" ? "running" : "device",
       product: info?.product ?? null,
@@ -138,7 +153,7 @@ export async function listVegaDevices(): Promise<VegaDevice[]> {
   const connectedImages = new Set(
     connected.filter((d) => d.kind === "vvd" && d.vvdImage).map((d) => d.vvdImage)
   );
-  const stopped: VegaDevice[] = (await listVvdImages())
+  const stopped: VegaDevice[] = installedImages
     .filter((img) => !connectedImages.has(img.name))
     .map(
       (img): VegaDevice => ({
