@@ -114,6 +114,25 @@ describe("boot-device — Vega VVD path", () => {
     expect(startVvd).toHaveBeenCalled();
   });
 
+  it("does not double-spend bootTimeoutMs: waitForVvdRunning gets only the remaining budget", async () => {
+    isVvdRunning.mockResolvedValue(false);
+    let now = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    // startVvd consumes 30s of the shared boot budget.
+    startVvd.mockImplementation(async () => {
+      now += 30_000;
+    });
+    try {
+      await createBootDeviceTool(registry).execute!({}, { vvdImage: "tv", bootTimeoutMs: 120_000 });
+      const waited = waitForVvdRunning.mock.calls[0]![0] as number;
+      // Buggy code passes the full 120_000 again; the fix passes ~90_000 (remaining).
+      expect(waited).toBeLessThanOrEqual(90_000);
+      expect(waited).toBeGreaterThan(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("throws a helpful error listing available images for an unknown image", async () => {
     isVvdRunning.mockResolvedValue(false);
     listVvdImages.mockResolvedValue([{ name: "tv", path: "/sdk/vvd/images/tv" }]);

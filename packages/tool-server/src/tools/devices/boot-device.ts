@@ -1170,11 +1170,16 @@ async function bootVegaImpl(params: {
     await stopVvd();
   }
 
+  // One shared boot budget across both stages: startVvd consumes part of
+  // bootTimeoutMs, so waitForVvdRunning gets only the time remaining rather than
+  // the full value again. Otherwise the budget is spent twice and the worst-case
+  // wall-clock before a boot failure surfaces is ~2x the requested deadline.
+  const bootDeadline = Date.now() + params.bootTimeoutMs;
   await startVvd({
     timeoutSeconds: Math.ceil(params.bootTimeoutMs / 1_000),
     imagePath: image.path,
   });
-  await waitForVvdRunning(params.bootTimeoutMs);
+  await waitForVvdRunning(Math.max(0, bootDeadline - Date.now()));
 
   return {
     platform: "vega",
