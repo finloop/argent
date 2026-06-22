@@ -85,7 +85,20 @@ function postJson(
         let data = "";
         res.setEncoding("utf-8");
         res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => resolve(data));
+        res.on("end", () => {
+          // A forwarded toolkit can answer non-2xx (e.g. the JSON-RPC endpoint is
+          // down and a gateway responds 500). Reject instead of handing the error
+          // body downstream as if it were page source — otherwise a success-shaped
+          // 500 body gets parsed as a real tree, and a structured/empty error body
+          // gets misreported as an empty screen. The caller's empty-tree + relaunch
+          // hint then covers it, as for every other toolkit-level failure here.
+          const status = res.statusCode ?? 0;
+          if (status < 200 || status >= 300) {
+            reject(new Error(`toolkit HTTP ${status}: ${data.slice(0, 200)}`));
+            return;
+          }
+          resolve(data);
+        });
       }
     );
     req.on("error", reject);
