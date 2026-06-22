@@ -137,18 +137,26 @@ export async function listVegaDevices(): Promise<VegaDevice[]> {
   }
 
   // The stopped list is the installed SDK images; the running VVD is one of them
-  // and must be excluded so it doesn't appear twice. The link is the image
+  // and should be excluded so it doesn't appear twice. The link is the image
   // *directory* name, but `info.profile` isn't guaranteed to equal it (and
   // `device info` may omit `profile` entirely). Resolve the running VVD's image
-  // name against the installed set, falling back to the sole installed image
-  // when there's exactly one — enough to dedup the common single-VVD case
-  // instead of re-emitting the running device as a phantom `stopped` row.
+  // name against the installed set, falling back to the sole installed image when
+  // there's exactly one.
+  //
+  // When neither holds (an unrecognized profile with 2+ installed images, or 2+
+  // running VVDs where `info` is null) the image genuinely can't be confirmed:
+  // return `null` rather than a raw, non-installed profile, so the running row
+  // never advertises a `vvdImage` that `boot-device` cannot start. We have no
+  // reliable running-VVD→image identity in that case — the `ps` probe yields the
+  // console port, not the image name — so the running image may still also appear
+  // in the stopped list. That residual is no longer dangerous: a non-force
+  // `boot-device` rejects unless it can positively confirm the running image.
   const installedImages = await listVvdImages();
   const installedNames = new Set(installedImages.map((i) => i.name));
   const resolveVvdImageName = (profile: string | null): string | null => {
     if (profile && installedNames.has(profile)) return profile;
     if (installedImages.length === 1) return installedImages[0]!.name;
-    return profile;
+    return null;
   };
 
   const connected: VegaDevice[] = rows.map((row): VegaDevice => {
