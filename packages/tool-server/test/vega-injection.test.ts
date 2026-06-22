@@ -13,11 +13,7 @@ vi.mock("../src/utils/vega-automation", () => ({
   emulatorSerial: vi.fn(async () => ({ serial: "emulator-5554", consolePort: 5554 })),
 }));
 
-import {
-  injectVegaButtons,
-  injectVegaNamedKey,
-  injectVegaText,
-} from "../src/utils/vega-input";
+import { injectVegaButtons, injectVegaNamedKey, injectVegaText } from "../src/utils/vega-input";
 
 // Real device output (verified on a VVD): get_screen_size prints this when
 // developer mode is ON; when OFF the dev-shell service is down and every

@@ -27,7 +27,10 @@ describe("tv-remote execute", () => {
   });
 
   it("flattens `repeat` over a button path and reports the right count", async () => {
-    const res = await tvRemoteTool.execute({}, { udid: VEGA_UDID, button: ["up", "down"], repeat: 2 });
+    const res = await tvRemoteTool.execute(
+      {},
+      { udid: VEGA_UDID, button: ["up", "down"], repeat: 2 }
+    );
     expect(injectVegaButtons).toHaveBeenCalledWith(["up", "down", "up", "down"]);
     expect(res).toEqual({ pressed: ["up", "down", "up", "down"], count: 4 });
   });
