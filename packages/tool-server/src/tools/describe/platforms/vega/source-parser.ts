@@ -221,9 +221,15 @@ export function parseVegaPageSource(xml: string): DescribeNode {
   const root = parseVegaXml(xml);
   if (!root) throw new Error("Failed to parse Vega page source");
   const scopes = foregroundScopes(root);
-  const { w, h } = findScreenSize(scopes[0]);
   const children: DescribeNode[] = [];
-  for (const scope of scopes) children.push(...convert(scope, w, h));
+  for (const scope of scopes) {
+    // Per scope, not once for scopes[0]: split-screen / picture-in-picture can
+    // surface multiple foreground apps with different window sizes, and normalizing
+    // a second app's frames against the first app's dimensions clamps them
+    // off-screen (a visible control would read as untappable).
+    const { w, h } = findScreenSize(scope);
+    children.push(...convert(scope, w, h));
+  }
   return {
     role: "Screen",
     frame: { x: 0, y: 0, width: 1, height: 1 },
