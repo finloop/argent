@@ -3,6 +3,13 @@ import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  FAILURE_CODES,
+  FailureError,
+  subprocessFailureMetadata,
+  type FailureSignal,
+} from "@argent/registry";
+import { formatSubprocessFailure } from "./subprocess-error";
 
 const execFileAsync = promisify(execFile);
 
@@ -102,24 +109,19 @@ export function resolveSpawnCwd(
 }
 
 function describeVegaFailure(args: string[], err: unknown): Error {
-  const e = err as {
-    code?: string | number | null;
-    signal?: string | null;
-    killed?: boolean;
-    stderr?: string;
-    stdout?: string;
-    message?: string;
+  // Shares the message format with adb (stderr/stdout first, then a
+  // signal/killed/code fallback) via formatSubprocessFailure, and — like adb —
+  // attaches a FailureSignal so `vega`/`kepler` CLI failures are classified for
+  // telemetry rather than surfacing as unclassified 500s.
+  const e = err as { signal?: string | null; killed?: boolean };
+  const signal: FailureSignal = {
+    error_code: FAILURE_CODES.VEGA_CLI_COMMAND_FAILED,
+    failure_stage: "vega_cli_command",
+    failure_area: "tool_server",
+    error_kind: e.killed || e.signal ? "timeout" : "subprocess",
+    ...subprocessFailureMetadata(err, "vega"),
   };
-  const argv = args.join(" ");
-  const ioDetail = (e.stderr ?? "").trim() || (e.stdout ?? "").trim();
-  if (ioDetail) return new Error(`vega ${argv} failed: ${ioDetail}`);
-  const meta: string[] = [];
-  if (e.killed) meta.push("killed=true");
-  if (e.signal) meta.push(`signal=${e.signal}`);
-  if (e.code) meta.push(`code=${e.code}`);
-  const baseMsg = (e.message ?? String(err)).trim();
-  const suffix = meta.length ? ` (${meta.join(" ")})` : "";
-  return new Error(`vega ${argv} failed: ${baseMsg}${suffix}`);
+  return new FailureError(formatSubprocessFailure("vega", args, err), signal);
 }
 
 /**

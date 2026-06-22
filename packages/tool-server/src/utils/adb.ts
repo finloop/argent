@@ -7,6 +7,7 @@ import {
   type FailureSignal,
 } from "@argent/registry";
 import { resolveAndroidBinary } from "./android-binary";
+import { formatSubprocessFailure } from "./subprocess-error";
 
 const execFileAsync = promisify(execFile);
 
@@ -117,19 +118,11 @@ export interface AdbRunResult {
 const ADB_KILL_SIGNAL = "SIGKILL" as const;
 
 function describeAdbFailure(args: string[], err: unknown): Error {
-  // Prefer adb's own stderr/stdout — that's the actionable diagnostic
-  // ("device offline", etc.). When both are empty (timeout-SIGKILL, daemon
-  // hang) fall back to the bare message + signal/killed/code so the failure
-  // mode is still identifiable instead of a tautological "Command failed".
-  const e = err as {
-    code?: string | number | null;
-    signal?: string | null;
-    killed?: boolean;
-    stderr?: string;
-    stdout?: string;
-    message?: string;
-  };
-  const argv = args.join(" ");
+  // The message (prefer adb's own stderr/stdout; fall back to signal/killed/code
+  // on a timeout-SIGKILL or daemon hang) is shared with the other subprocess
+  // wrappers — see formatSubprocessFailure. adb additionally attaches a
+  // FailureSignal so the failure is classified for telemetry.
+  const e = err as { signal?: string | null; killed?: boolean };
   const signal: FailureSignal = {
     error_code: FAILURE_CODES.ANDROID_ADB_COMMAND_FAILED,
     failure_stage: "android_adb_command",
@@ -137,15 +130,7 @@ function describeAdbFailure(args: string[], err: unknown): Error {
     error_kind: e.killed || e.signal ? "timeout" : "subprocess",
     ...subprocessFailureMetadata(err, "adb"),
   };
-  const ioDetail = (e.stderr ?? "").trim() || (e.stdout ?? "").trim();
-  if (ioDetail) return new FailureError(`adb ${argv} failed: ${ioDetail}`, signal);
-  const meta: string[] = [];
-  if (e.killed) meta.push("killed=true");
-  if (e.signal) meta.push(`signal=${e.signal}`);
-  if (e.code) meta.push(`code=${e.code}`);
-  const baseMsg = (e.message ?? String(err)).trim();
-  const suffix = meta.length ? ` (${meta.join(" ")})` : "";
-  return new FailureError(`adb ${argv} failed: ${baseMsg}${suffix}`, signal);
+  return new FailureError(formatSubprocessFailure("adb", args, err), signal);
 }
 
 /**
