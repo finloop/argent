@@ -15,6 +15,7 @@
  * arch/glibc build entirely (all that's left is `adb`, which argent already
  * ships for Android).
  */
+import { FAILURE_CODES, FailureError } from "@argent/registry";
 import { adbShell, shellQuote } from "./adb";
 import { emulatorSerial } from "./vega-automation";
 
@@ -76,22 +77,53 @@ export function remoteButtonsToKeycodes(buttons: RemoteButton[]): string[] {
   return buttons.map((b) => REMOTE_KEYCODES[b]);
 }
 
+// The on-device dev-shell service (`com.amazon.dev.shell.service`) that exposes
+// `inputd-cli` over `adb shell` runs only while the VVD's developer mode is ON.
+// With it off, EVERY `inputd-cli` command — including `get_screen_size` — returns
+// "Error: No running instances of com.amazon.dev.shell.service found" (verified
+// on a real VVD by toggling `vsm developer-mode`). So the `get_screen_size` probe
+// IS the developer-mode + liveness gate: run it first, run the presses only when
+// it prints "<W> x <H>", and otherwise fail loudly with an actionable error.
+//
+// We deliberately do NOT consult `vega device info`'s `inDeveloperMode`: it needs
+// the `vega`/`kepler` CLI this adb-only path avoids, and it lags the live state by
+// seconds after a toggle (observed: `inputd-cli` already works while the field
+// still reads false), so it would be both a heavier and a less accurate gate.
+const SCREEN_SIZE_RE = /\d+\s*x\s*\d+/;
+// Distinguish "developer mode is off" (the dev-shell service is down) from a
+// generic dead channel, so the error can point the user at the actual fix.
+const DEV_SHELL_DOWN_RE = /dev\.shell\.service|developer.?mode/i;
+
+function inputUnavailableError(out: string): FailureError {
+  const detail = out.trim().slice(0, 200);
+  const message = DEV_SHELL_DOWN_RE.test(out)
+    ? `Vega input is unavailable: the on-device developer shell isn't running, so ` +
+      `'inputd-cli' can't be reached over adb — this means the VVD's developer mode is off. ` +
+      `Enable it (\`vsm developer-mode enable\`, e.g. via \`vega device shell\`) and retry. ` +
+      `Device output: ${detail}`
+    : `Vega input channel is not usable: 'inputd-cli get_screen_size' returned no ` +
+      `"<W> x <H>" over adb shell. Device output: ${detail}`;
+  return new FailureError(message, {
+    error_code: FAILURE_CODES.VEGA_INPUT_UNAVAILABLE,
+    failure_stage: "vega_input_inject",
+    failure_area: "tool_server",
+    error_kind: "unsupported",
+  });
+}
+
 /**
  * Run one or more `inputd-cli` subcommands on the VVD in a single `adb shell`
- * round-trip, gated on an input-channel liveness probe.
+ * round-trip, gated on the input channel being live — which, over adb, means the
+ * VVD's developer mode is ON (see the note above).
  *
- * `inputd-cli get_screen_size` prints "<W> x <H>" only when the input daemon is
- * reachable; we run it first and require that shape, so a dead channel fails
- * loudly instead of silently dropping every press (the exact no-op the old
- * vega-fast-cli path degraded to on the CI VVD). The subcommands themselves are
- * best-effort (`|| true`, output discarded) and settle between, mirroring the
- * proven navigation script.
- *
- * TODO: `get_screen_size` is a *basic* inputd-cli command available even when
- * the VVD's developer mode is off, whereas `button_press` / `send_text` require
- * it. So the probe passes but every press silently no-ops on a dev-mode-off VVD.
- * Gate on a dev-mode-only command (or check `vsm developer-mode`) so that case
- * fails loudly too.
+ * The script runs `get_screen_size` first and runs the presses ONLY if it printed
+ * a "<W> x <H>" shape (a POSIX `case` gate, validated on `/bin/sh`). So a
+ * dev-mode-off / dead channel fails fast: without the gate, a long path would
+ * `sleep` between thousands of no-op presses for minutes before the caller could
+ * tell anything was wrong. The presses are best-effort (`|| true`, output
+ * discarded) and settle between, mirroring the proven navigation script; only
+ * `get_screen_size` writes to the captured stdout, which the caller re-checks as
+ * the authoritative gate.
  *
  * Callers must pass shell-safe subcommands: KEY_ codes come from the whitelisted
  * maps above; free text is wrapped with `shellQuote` before it reaches here.
@@ -102,8 +134,12 @@ async function injectViaInputd(subcommands: string[]): Promise<void> {
   const presses = subcommands
     .map((s) => `inputd-cli ${s} >/dev/null 2>&1 || true`)
     .join(`; sleep ${SETTLE_BETWEEN_PRESSES_S}; `);
-  // Only get_screen_size writes to the captured stdout; the presses are silenced.
-  const script = `inputd-cli get_screen_size; ${presses}`;
+  // Capture get_screen_size, echo it for the caller's gate, and run the presses
+  // only when it looks like "<W> x <H>" — a dev-mode-off device then fails fast
+  // instead of sleeping through every no-op press.
+  const script =
+    `sz=$(inputd-cli get_screen_size 2>&1); printf '%s\\n' "$sz"; ` +
+    `case "$sz" in *[0-9]*x*[0-9]*) ${presses} ;; esac`;
   // The script's on-device duration scales with the path: every press settles
   // `SETTLE_BETWEEN_PRESSES_S` apart, and `tv-remote` admits up to 64 buttons ×
   // repeat 50 (~3200 presses). A fixed timeout would SIGKILL the adb child
@@ -113,12 +149,7 @@ async function injectViaInputd(subcommands: string[]): Promise<void> {
   const PER_PRESS_BUDGET_MS = SETTLE_BETWEEN_PRESSES_S * 1_000 + 200;
   const timeoutMs = 15_000 + subcommands.length * PER_PRESS_BUDGET_MS;
   const out = await adbShell(serial, script, { timeoutMs });
-  if (!/\d+\s*x\s*\d+/.test(out)) {
-    throw new Error(
-      `Vega input channel is not usable: 'inputd-cli get_screen_size' returned no ` +
-        `"<W> x <H>" over adb shell. Device output: ${out.trim().slice(0, 200)}`
-    );
-  }
+  if (!SCREEN_SIZE_RE.test(out)) throw inputUnavailableError(out);
 }
 
 /** Inject a path of D-pad/remote buttons via the on-device `inputd-cli`. */
