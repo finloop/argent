@@ -49,9 +49,16 @@ export function isAndroidEmulatorSerial(serial: string): boolean {
 
 /**
  * Build a `DeviceInfo` from a raw udid, by shape. Kind defaults per platform:
- * 'simulator' for iOS, 'vvd' for Vega (v1 supports the Virtual Device only),
- * 'emulator'/'device' for Android by serial shape, 'app' for Chromium — platform
- * impls can enrich with name/state/sdkLevel via simctl/adb if needed.
+ * 'simulator' for iOS, 'vvd' for Vega, 'emulator'/'device' for Android by serial
+ * shape, 'app' for Chromium — platform impls can enrich with name/state/sdkLevel
+ * via simctl/adb if needed.
+ *
+ * Vega is VVD-only in v1: the tool-server does not connect to or detect physical
+ * Fire TV hardware, so every `amazon-` serial resolves to kind `vvd` by shape. A
+ * physical device is therefore out of scope here — it is *not* classified as
+ * `device` and so is *not* rejected by the capability gate (`vega: { vvd: true }`).
+ * Supporting and gating real hardware is deferred to a version where it can
+ * actually be tested; this code makes no assumptions about how one presents.
  */
 export function resolveDevice(udid: string): DeviceInfo {
   const platform = classifyDevice(udid);
