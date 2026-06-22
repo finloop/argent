@@ -85,6 +85,18 @@ describe("parseVegaPageSource", () => {
     expect(selected.length).toBeGreaterThan(0);
   });
 
+  it("surfaces the focused cursor via .focused (the D-pad navigation signal)", () => {
+    // The shipped fixture has no focused="true" node, so assert against inline XML.
+    const xml =
+      '<?xml version="1.0"?><root id="1"><app appName="com.x">' +
+      '<window x="0" y="0" width="1920" height="1080">' +
+      '<child x="0" y="0" width="100" height="100" role="button" focusable="true" focused="true" test_id="1">' +
+      "<text>Cursor</text></child></window></app></root>";
+    const node = byLabel(parseVegaPageSource(xml), "Cursor");
+    expect(node).toBeDefined();
+    expect(node!.focused).toBe(true);
+  });
+
   it("scopes to the foreground app and drops the Kepler launcher overlay", () => {
     const labels = flatten(tree)
       .map((n) => n.label)
@@ -133,6 +145,22 @@ describe("formatDescribeTree (vega-automation → nested)", () => {
     // tap targets — the iOS/Android tap formula must not appear.
     expect(text).toContain("remote-driven");
     expect(text).not.toContain("tap_x = frame.x");
+  });
+
+  it("renders the focused cursor as [focused] (with [selected] when both set)", () => {
+    const xml =
+      '<?xml version="1.0"?><root id="1"><app appName="com.x">' +
+      '<window x="0" y="0" width="1920" height="1080">' +
+      '<child x="0" y="0" width="100" height="100" role="button" focusable="true" focused="true" test_id="1">' +
+      "<text>Cursor</text></child>" +
+      '<child x="100" y="0" width="100" height="100" role="button" focusable="true" focused="true" selected="true" test_id="2">' +
+      "<text>Both</text></child>" +
+      "</window></app></root>";
+    const text = formatDescribeTree(parseVegaPageSource(xml), { source: "vega-automation" });
+    // Assert the rendered flag strings, not bare "[focused]" — the Vega header
+    // mentions "[focused]"/"[selected]" verbatim, so those alone prove nothing.
+    expect(text).toContain("[clickable,focused]");
+    expect(text).toContain("[clickable,focused,selected]");
   });
 });
 
