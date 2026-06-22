@@ -252,15 +252,21 @@ for attempt in 1 2 3 4 5; do
   resp="$(post_tool describe "$(printf '{"udid":"%s"}' "$SERIAL")")" || resp=""
   src="$(jget "$resp" source)"
   desc="$(jget "$resp" description)"
-  if [ "$src" = "vega-automation" ] && [ -n "$desc" ]; then desc_ok=1; break; fi
-  echo "attempt ${attempt}: describe empty/not ready; retrying..."
+  # An empty / unreachable describe still returns source:"vega-automation" and a
+  # non-empty `description` (format-tree always emits the Source/Mode/ROOT header
+  # + the relaunch hint), so `src` and `-n desc` alone can't tell a real tree from
+  # a broken one. Require actual element lines *beyond* the ROOT header — i.e. the
+  # toolkit attached and produced on-screen content.
+  elems="$(printf '%s\n' "$desc" | awk '/^ROOT /{seen=1; next} seen && NF {c++} END{print c+0}')"
+  if [ "$src" = "vega-automation" ] && [ "${elems:-0}" -ge 1 ] 2>/dev/null; then desc_ok=1; break; fi
+  echo "attempt ${attempt}: describe empty/not ready (element lines beyond header: ${elems:-0}); retrying..."
   echo "  response: ${resp:0:200}"
   sleep 4
 done
 if [ -n "$desc_ok" ]; then
-  echo "OK: describe returned a vega-automation tree"
+  echo "OK: describe returned a vega-automation tree with ${elems} element line(s) beyond the header"
 else
-  fail "describe did not return a non-empty vega-automation tree"
+  fail "describe did not return a tree with element content beyond the header"
 fi
 endg
 
